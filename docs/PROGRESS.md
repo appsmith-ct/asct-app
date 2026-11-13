@@ -16,7 +16,7 @@ Last updated: 2026-11-14
 | M2: Intake and BA | **Done** | `docs/plans/2026_11_13-m2-intake-and-ba-plan.md` |
 | M3: Software Architect | **Done** | `docs/plans/2026_11_13-m3-software-architect-plan.md` |
 | M4: Component subgraph | **Done** | `docs/plans/2026_11_14-m4-component-subgraph-plan.md` |
-| M5: Integration, staging and QA | Not started | — |
+| M5: Integration, staging and QA | **Done** | `docs/plans/2026_11_14-m5-integration-staging-qa-plan.md` |
 | M6: API and UI | Not started | — |
 | M7: Milestone loop and change requests | Not started | — |
 | M8: Packaging and evaluation | Not started | — |
@@ -171,6 +171,61 @@ integration tests), `ruff check .` (clean), `mypy appsmith` (clean, 49 source fi
 Full detail, including every deliberate not-yet-built piece (task-splitting on re-plan,
 `tools/http.py`, per-kind artifact export paths): see
 `docs/plans/2026_11_14-m4-component-subgraph-plan.md`.
+
+## M5 — detail
+
+**Done 2026-11-14.** All in `asct-be-engine`. The milestone-level cycle the spec's mermaid diagram
+draws as `COMP -> INT -> QA -> BUGS -> (COMP again, bounded)`, built as one new project-graph node
+(`appsmith/graphs/milestone_flow.py::build_and_verify_milestone`, wired in as `build_milestone`):
+`fan_out_components` (sequential, reusing a newly-extracted `run_component_build` so M4's
+single-component logic isn't duplicated), `integrate_stage` (every component done, every
+contract's producer/consumer done), `stage_components` (real local processes via a new
+`Supervisor`, health-polled), the QA role (`appsmith/roles/qa.py`: black-box `TestPlan`
+generation from Requirements alone, then real HTTP execution turning mismatches into
+`BugReport`s), and `triage_and_fix_bugs` (re-enters the owning component's task loop with the bug
+as a `Task`, bounded by `bugfix_rounds`). Also: the container-execution safety setting the spec
+calls out as its own M5 deliverable (`appsmith/tools/container.py`, `CommandRunner.use_container`)
+— implemented and proven working for real, but defaulted **off** (see the plan doc; briefly, on
+this Windows dev machine, Docker Desktop's bind mount marks every file executable inside the
+container regardless of its Windows permissions, which trips ruff's `EXE002` on every scaffolded
+file before a Dev even runs — a host/Docker interaction, not a product bug).
+
+**Scope notes:** sequential fan-out, not parallel `Send` (moot while
+`max_concurrent_llm_calls` defaults to 1); Supervisor-only staging, no Docker-compose path;
+`build_milestone` builds every component the Architecture lists, not one milestone's worth
+(per-milestone scoping is M7's "run milestones in order"); the acceptance test's "frontend" is a
+second python-fastapi component tagged `kind="frontend"`, not a real `typescript-react` one
+(that stack's scaffold is still a stub with no working dev-server script, unchanged since M3).
+
+Found and fixed four real bugs along the way, three of them pre-existing (latent since M3/M4,
+surfaced only because M5 exercises real gates against two components through a bugfix round
+instead of one clean build): the scaffold's own `tests/test_health.py` failed `ruff`'s import-sort
+rule in a way that depended on *where the scaffolded project happened to sit on disk* (fixed by
+declaring `known-first-party` explicitly rather than relying on auto-detection); `uv run uvicorn
+--reload` leaks an unkillable zombie subprocess on Windows (fixed by dropping `--reload` from
+staging's `run_command` — it was never needed there — and making `Supervisor` kill the whole
+process tree, not just the direct child, as defense in depth); the Tech Lead's own E2E test
+fixture content tripped `ruff`'s unused-import rule once a bugfix round's gate actually linted it
+(M4's `component_e2e` step never runs a gate on what it writes); and `stage_components` was
+stopping every staged server *before* QA ever got to test them, because it opened and closed its
+own `Supervisor` scope internally — every QA check against a "healthy" staging report came back
+connection-refused until `build_and_verify_milestone` was changed to own one `Supervisor` per
+round, spanning both the staging call and the QA cycle.
+
+**Acceptance verification:** done.
+`tests/test_milestone_flow.py::test_build_and_verify_milestone_reaches_ready_after_one_bugfix_round`
+(`@pytest.mark.slow`) is the literal scenario: two real components built end to end with
+FakeChatModel standing in for the model, staged as real local processes, QA'd for real over HTTP,
+with a deliberately-wrong round-1 QA expectation that forces a real bugfix round before round 2's
+corrected plan passes. Final `MilestoneReport`: `status="ready"`, `bugfix_rounds_used=1`. Fast
+unit tests cover `integrate_stage` and `run_qa_cycle`'s wiring directly; `tests/test_container.py`
+proves the container-execution option actually works (a real `@pytest.mark.slow` test runs a
+command inside a real Docker container). Full suite: `uv run pytest` (128 passed, ~94s including
+every slow real-subprocess test), `ruff check .` (clean), `mypy appsmith` (clean, 54 source
+files) — re-verified against a fresh `git clone --recurse-submodules` of `asct-app`.
+
+Full detail, including every scope decision and the exact bug diagnoses: see
+`docs/plans/2026_11_14-m5-integration-staging-qa-plan.md`.
 
 ## Working agreements for future sessions
 
