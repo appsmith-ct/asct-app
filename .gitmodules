@@ -1,0 +1,6 @@
+[submodule "asct-be-engine"]
+	path = asct-be-engine
+	url = https://github.com/appsmith-ct/asct-be-engine.git
+[submodule "asct-fe-desktop"]
+	path = asct-fe-desktop
+	url = https://github.com/appsmith-ct/asct-fe-desktop.git
