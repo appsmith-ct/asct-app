@@ -5,7 +5,7 @@ Claude Code sessions. For what each milestone requires, see
 `docs/specs/2026_11_13-appsmith_ct_implementation_specification.md`, section 10. For how a specific
 milestone was executed, see the matching dated plan in `docs/plans/`.
 
-Last updated: 2026-11-13
+Last updated: 2026-11-14
 
 ## Milestone status
 
@@ -15,7 +15,7 @@ Last updated: 2026-11-13
 | M1: Engine foundation | **Done** | `docs/plans/2026_11_13-m1-engine-foundation-plan.md` |
 | M2: Intake and BA | **Done** | `docs/plans/2026_11_13-m2-intake-and-ba-plan.md` |
 | M3: Software Architect | **Done** | `docs/plans/2026_11_13-m3-software-architect-plan.md` |
-| M4: Component subgraph | Not started | — |
+| M4: Component subgraph | **Done** | `docs/plans/2026_11_14-m4-component-subgraph-plan.md` |
 | M5: Integration, staging and QA | Not started | — |
 | M6: API and UI | Not started | — |
 | M7: Milestone loop and change requests | Not started | — |
@@ -128,6 +128,46 @@ both directions. Full suite: `uv run pytest` (59 passed), `ruff check .` (clean)
 Full detail, including the checkpoint-namespace bug and deliberate not-yet-built pieces
 (`gate_sa`, per-kind artifact export paths, actual contract schema authoring): see
 `docs/plans/2026_11_13-m3-software-architect-plan.md`.
+
+## M4 — detail
+
+**Done 2026-11-14.** All in `asct-be-engine`. The big one: a real tool layer
+(`appsmith/tools/`: `files.py`/`FileJail`, `commands.py`/`CommandRunner` — needed a custom
+command-string tokenizer, `shlex.split(posix=True)` mangles Windows backslash paths and
+`posix=False` doesn't strip quotes — `git.py`/`GitTool`, `repos.py` for per-component
+repositories as submodules of the project root (or a shared root repo for `monolith_module`
+components), `scaffold.py`, `gates.py`); the agent loop (`appsmith/core/agent_loop.py`,
+`run_agent_loop`, deferred since M1 — uses the `json_action` protocol unconditionally, true
+native tool-calling is a deferred optimization); shared DAG helpers
+(`appsmith/core/dag.py`: `find_cycle` extracted from SA, plus new `transitive_closure` and
+`topological_order`); the Developer role (`appsmith/roles/developer.py`); the Tech Lead role
+grown to six jobs in one shared system prompt (planning, review, conflict resolution, task
+re-planning, writing an end-to-end test, and summarizing the handoff); the task loop and
+escalation ladder (`appsmith/graphs/component_subgraph.py::run_task` — one Python function, not
+a LangGraph node per stage, since the spec's task loop is sequential); the full component build
+graph (`tl_plan -> scaffold -> process_tasks -> component_e2e -> handoff`, its own checkpoint
+file per component id); the `appsmith build <project> <component_id>` CLI command.
+
+**Scope note:** the spec's "fan_out_components" (parallel multi-component builds) is M5 work per
+section 10's M5 entry, not M4 — M4 builds *one* component; `appsmith build` is a separate command
+from `run`'s `NODE_ORDER`, not an extension of it.
+
+Found and fixed two real bugs along the way: `CommandRunner`'s Windows command-string splitting
+(see above), and `TaskOutcome.final_profile_id` renamed to `final_role` before it ever shipped —
+the task loop only ever tracked the escalation rung's role name, not a profile id.
+
+**Acceptance verification:** done. `tests/test_component_subgraph.py` covers retry, escalation,
+blocked-task (forced via `max_replans=0` for a direct test), a re-plan-then-succeed cycle, and a
+manufactured merge conflict resolved by the Tech Lead. `tests/test_build_component_integration.py`
+runs the *entire* pipeline for real — real git repos, a real scaffolded python-fastapi project,
+real `uv run ruff`/`mypy`/`pytest` gates, FakeChatModel standing in for the model — and passed on
+its first full run. `scripts/manual_m4_check.py` covers the real-model half (human-run, not CI).
+Full suite: `uv run pytest` (111 passed, ~35s including two `@pytest.mark.slow` real-subprocess
+integration tests), `ruff check .` (clean), `mypy appsmith` (clean, 49 source files).
+
+Full detail, including every deliberate not-yet-built piece (task-splitting on re-plan,
+`tools/http.py`, per-kind artifact export paths): see
+`docs/plans/2026_11_14-m4-component-subgraph-plan.md`.
 
 ## Working agreements for future sessions
 
