@@ -152,9 +152,12 @@ file per component id); the `appsmith build <project> <component_id>` CLI comman
 section 10's M5 entry, not M4 — M4 builds *one* component; `appsmith build` is a separate command
 from `run`'s `NODE_ORDER`, not an extension of it.
 
-Found and fixed two real bugs along the way: `CommandRunner`'s Windows command-string splitting
-(see above), and `TaskOutcome.final_profile_id` renamed to `final_role` before it ever shipped —
-the task loop only ever tracked the escalation rung's role name, not a profile id.
+Found and fixed three real bugs along the way: `CommandRunner`'s Windows command-string splitting
+(see above); `TaskOutcome.final_profile_id` renamed to `final_role` before it ever shipped (the
+task loop only ever tracked the escalation rung's role name, not a profile id); and a test-only
+bug the fresh-clone verification step caught that the local working copy couldn't — two tests
+built a command string with an unquoted `sys.executable`, which broke once run from a path
+containing a space (the scratch directory's Windows username, "Buddhima Zoysa").
 
 **Acceptance verification:** done. `tests/test_component_subgraph.py` covers retry, escalation,
 blocked-task (forced via `max_replans=0` for a direct test), a re-plan-then-succeed cycle, and a

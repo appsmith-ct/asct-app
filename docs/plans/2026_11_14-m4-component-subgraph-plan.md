@@ -116,9 +116,10 @@ across every component of a project is M5's job. This showed up as a new, separa
       repos, a real scaffolded python-fastapi project, real `uv run ruff`/`mypy`/`pytest` gates,
       FakeChatModel standing in for the model) and passed on its first full run — a strong signal
       the wiring across M4's many pieces is actually correct together, not just piece by piece.
-- [x] Full suite: `uv run pytest` (111 passed, ~35s — the two real-subprocess integration tests
+- [x] Full suite: `uv run pytest` (111 passed, ~35-40s — the two real-subprocess integration tests
       are marked `@pytest.mark.slow` but still run by default), `ruff check .` (clean), `mypy
-      appsmith` (clean, 49 source files).
+      appsmith` (clean, 49 source files) — re-verified against a fresh `git clone
+      --recurse-submodules` of `asct-app`, not just the local working copy.
 
 ## Notes / deviations
 
@@ -149,3 +150,14 @@ across every component of a project is M5's job. This showed up as a new, separa
   different profiles' queues unless the test deliberately shares one id, and the top escalation
   rung (`tech_lead`) shares its profile with the Tech Lead's own planning/review/e2e/handoff calls
   in production — worth remembering when scripting a test that reaches the top rung.
+- **A third real bug, found only by the fresh-clone verification step**: `test_tools_commands.py`
+  and one test in `test_developer.py` built a command string as `f'{sys.executable} -c "..."'` —
+  only the `-c` argument was quoted, not the executable path itself. This worked by accident in
+  the local working copy (`c:\dev\asct-app\...`, no spaces) but broke in the fresh-clone scratch
+  directory, whose path includes the Windows username "Buddhima Zoysa" — a space in
+  `sys.executable` split it into two bogus tokens, and Windows' `CreateProcess` failed with
+  `OSError: [WinError 193] %1 is not a valid Win32 application`. Not a `_split_command` bug (it
+  correctly parsed what it was given — an unquoted path with a space, same as a real shell would
+  mis-split); the fix was quoting the executable in the test's own command string. This is exactly
+  why the fresh-clone check happens in a *different* path for every milestone rather than
+  reusing one scratch directory — a path with no spaces would have hidden this indefinitely.
