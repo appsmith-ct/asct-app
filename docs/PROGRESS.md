@@ -122,7 +122,8 @@ caught and retried). `tests/test_sample_briefs_sa.py` confirms every requirement
 component on all three sample briefs. `tests/test_component_context_builder.py` confirms a
 component's context never contains another component's (deliberately distinctive) spec text, in
 both directions. Full suite: `uv run pytest` (59 passed), `ruff check .` (clean), `mypy appsmith`
-(clean, 38 source files).
+(clean, 38 source files) — re-verified against a fresh `git clone --recurse-submodules` of
+`asct-app`.
 
 Full detail, including the checkpoint-namespace bug and deliberate not-yet-built pieces
 (`gate_sa`, per-kind artifact export paths, actual contract schema authoring): see
