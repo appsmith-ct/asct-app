@@ -90,7 +90,7 @@ harness, added now because M2 needs them): output validates, every requirement h
 acceptance criterion, every requirement belongs to exactly one real milestone. CLI tested at three
 levels (graphs/nodes directly, the CLI's injectable wrapper functions, and `main()` with real
 argv). Full suite: `uv run pytest` (42 passed), `ruff check .` (clean), `mypy appsmith` (clean, 35
-source files).
+source files) — re-verified against a fresh `git clone --recurse-submodules` of `asct-app`.
 
 Full detail, including the `LLMClient` caching fix and deliberate not-yet-built pieces (`gate_ba`,
 per-kind artifact export file paths): see `docs/plans/2026_11_13-m2-intake-and-ba-plan.md`.
