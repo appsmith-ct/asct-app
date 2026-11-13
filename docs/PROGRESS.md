@@ -54,8 +54,9 @@ real local endpoint.
 `FakeChatModel`, writes a versioned artifact, and records the call; a second test simulates a crash by
 rebuilding every in-memory object from scratch against the same on-disk databases and confirms no
 duplicate LLM call or artifact version. Full suite: `uv run pytest` (28 passed), `ruff check .`
-(clean), `mypy appsmith` (clean). `scripts/manual_m1_check.py` covers the real-endpoint half of the
-acceptance criterion (human-run, not CI).
+(clean), `mypy appsmith` (clean) — re-verified against a fresh `git clone --recurse-submodules` of
+`asct-app`, not just the local working copy. `scripts/manual_m1_check.py` covers the real-endpoint
+half of the acceptance criterion (human-run, not CI).
 
 Full detail, including deliberate not-yet-built pieces (`run_agent_loop`, per-kind artifact export
 paths, concrete ContextBuilder subclasses — all scheduled for M2+): see
