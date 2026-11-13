@@ -12,7 +12,7 @@ Last updated: 2026-11-13
 | Milestone | Status | Plan doc |
 | --- | --- | --- |
 | M0: Skeleton | **Done** | `docs/plans/2026_11_13-m0-skeleton-plan.md` |
-| M1: Engine foundation | Not started | — |
+| M1: Engine foundation | **Done** | `docs/plans/2026_11_13-m1-engine-foundation-plan.md` |
 | M2: Intake and BA | Not started | — |
 | M3: Software Architect | Not started | — |
 | M4: Component subgraph | Not started | — |
@@ -36,6 +36,30 @@ not-yet-built pieces (Tailwind, React Flow, Alembic, LangGraph — all scheduled
 **Acceptance verification:** done. A fresh `git clone --recurse-submodules` of `asct-app` from GitHub into
 a scratch directory, then `uv run pytest` in `asct-be-engine` and `pnpm install && pnpm build` in
 `asct-fe-desktop`, both pass. M0 is fully closed out.
+
+## M1 — detail
+
+**Done 2026-11-13.** All in `asct-be-engine`. Config loader for `roles.yaml`-shaped config
+(`ModelProfile`/`RoleConfig`/`Limits`/`RolesConfig`); two SQLite databases (per-user app/settings db,
+per-project db), each with its own hand-written Alembic migration, run programmatically via
+`appsmith/core/migrate.py`; `ArtifactStore` with versioned, idempotent saves plus a readable file
+export; `FakeChatModel` (a real `BaseChatModel`, not a mock) and `LLMClient.generate_structured` with
+constrained-decoding hints, Pydantic validation, bounded retry, and full call tracing to `llm_calls`;
+a synchronous `EventBus` with the typed run-event vocabulary from spec section 9; the `ContextBuilder`
+base class (whitelist filtering + budget-based trimming, loud failure on overflow); `appsmith config`
+CLI standing in for the Settings screen; and a manual script to run the same LLM-call path against a
+real local endpoint.
+
+**Acceptance verification:** done. `tests/test_graph_resume.py` runs a two-node LangGraph under
+`FakeChatModel`, writes a versioned artifact, and records the call; a second test simulates a crash by
+rebuilding every in-memory object from scratch against the same on-disk databases and confirms no
+duplicate LLM call or artifact version. Full suite: `uv run pytest` (28 passed), `ruff check .`
+(clean), `mypy appsmith` (clean). `scripts/manual_m1_check.py` covers the real-endpoint half of the
+acceptance criterion (human-run, not CI).
+
+Full detail, including deliberate not-yet-built pieces (`run_agent_loop`, per-kind artifact export
+paths, concrete ContextBuilder subclasses — all scheduled for M2+): see
+`docs/plans/2026_11_13-m1-engine-foundation-plan.md`.
 
 ## Working agreements for future sessions
 
