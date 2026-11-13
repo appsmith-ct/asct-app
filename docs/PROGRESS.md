@@ -33,8 +33,9 @@ Full detail, including the one credential-setup snag (`gh auth setup-git`) and t
 not-yet-built pieces (Tailwind, React Flow, Alembic, LangGraph — all scheduled for later milestones): see
 `docs/plans/2026_11_13-m0-skeleton-plan.md`.
 
-**Acceptance verification:** pending a fresh recursive clone check from GitHub (see that plan doc's
-acceptance checklist) — run this before calling M0 fully closed out.
+**Acceptance verification:** done. A fresh `git clone --recurse-submodules` of `asct-app` from GitHub into
+a scratch directory, then `uv run pytest` in `asct-be-engine` and `pnpm install && pnpm build` in
+`asct-fe-desktop`, both pass. M0 is fully closed out.
 
 ## Working agreements for future sessions
 

@@ -59,8 +59,10 @@ Status: **Done** (see `docs/PROGRESS.md` for the live status across all mileston
 
 - [x] `uv run pytest` passes in `asct-be-engine` (1 test, `GET /health`).
 - [x] `pnpm build` passes in `asct-fe-desktop`.
-- [x] Both verified against a **fresh recursive clone** of `asct-app` from GitHub, not just the local
-      working copy that produced the commits (see `docs/PROGRESS.md` for the verification run).
+- [x] Both verified against a **fresh recursive clone** of `asct-app` from GitHub (cloned to a scratch
+      directory, not the local working copy that produced the commits): `git clone --recurse-submodules`,
+      then `uv sync --all-groups && uv run pytest` in the engine and `pnpm install && pnpm build` in the UI
+      — all green.
 
 ## Notes / deviations
 
