@@ -14,7 +14,7 @@ Last updated: 2026-11-13
 | M0: Skeleton | **Done** | `docs/plans/2026_11_13-m0-skeleton-plan.md` |
 | M1: Engine foundation | **Done** | `docs/plans/2026_11_13-m1-engine-foundation-plan.md` |
 | M2: Intake and BA | **Done** | `docs/plans/2026_11_13-m2-intake-and-ba-plan.md` |
-| M3: Software Architect | Not started | — |
+| M3: Software Architect | **Done** | `docs/plans/2026_11_13-m3-software-architect-plan.md` |
 | M4: Component subgraph | Not started | — |
 | M5: Integration, staging and QA | Not started | — |
 | M6: API and UI | Not started | — |
@@ -94,6 +94,39 @@ source files) — re-verified against a fresh `git clone --recurse-submodules` o
 
 Full detail, including the `LLMClient` caching fix and deliberate not-yet-built pieces (`gate_ba`,
 per-kind artifact export file paths): see `docs/plans/2026_11_13-m2-intake-and-ba-plan.md`.
+
+## M3 — detail
+
+**Done 2026-11-13.** All in `asct-be-engine`. New artifact schemas `StackChoice`, `ComponentSpec`,
+`Contract`, `Architecture` (`ComponentSpec`/`Contract` are per-id artifacts, not collections —
+the opposite shape from M2's `RequirementsArtifact`/`MilestonesArtifact`, matching the spec's
+one-file-per-component/-contract convention). SA (`appsmith/roles/sa.py`) makes one LLM call
+covering the spec's 7-step decision order; its architecture validator splits across a
+self-contained Pydantic `model_validator` (dangling contract references, dependency cycles) and a
+new `extra_validate` hook on `LLMClient.generate_structured` for the one check that needs data
+outside the model's own response (no requirement left uncovered). Stacks are a shipped registry
+(`appsmith/defaults/stacks/*.yaml`) the model picks a `stack_id` from rather than inventing.
+`ComponentContextBuilder` previews the Tech Lead's view of one component (full version in M4) and
+is what proves component isolation now. `appsmith run` runs `ba` then `sa`, and `--stop-after`
+genuinely pauses there via LangGraph's `interrupt_before`.
+
+Found and fixed a real bug: `run_intake_chat` and `run_project_pipeline` share
+`thread_id=project_id` but, until this milestone, also shared one checkpoint file — the project
+graph's new "is this a resume?" check could pick up the *intake* graph's leftover checkpoint
+under that same thread id and misread it as its own prior state. Fixed with one checkpoint file
+per graph name.
+
+**Acceptance verification:** done. `tests/test_sa_node.py` exercises every validator path directly
+(uncovered requirement, dangling contract reference, dependency cycle, unknown stack id — each
+caught and retried). `tests/test_sample_briefs_sa.py` confirms every requirement maps to a
+component on all three sample briefs. `tests/test_component_context_builder.py` confirms a
+component's context never contains another component's (deliberately distinctive) spec text, in
+both directions. Full suite: `uv run pytest` (59 passed), `ruff check .` (clean), `mypy appsmith`
+(clean, 38 source files).
+
+Full detail, including the checkpoint-namespace bug and deliberate not-yet-built pieces
+(`gate_sa`, per-kind artifact export paths, actual contract schema authoring): see
+`docs/plans/2026_11_13-m3-software-architect-plan.md`.
 
 ## Working agreements for future sessions
 
