@@ -13,7 +13,7 @@ Last updated: 2026-11-13
 | --- | --- | --- |
 | M0: Skeleton | **Done** | `docs/plans/2026_11_13-m0-skeleton-plan.md` |
 | M1: Engine foundation | **Done** | `docs/plans/2026_11_13-m1-engine-foundation-plan.md` |
-| M2: Intake and BA | Not started | — |
+| M2: Intake and BA | **Done** | `docs/plans/2026_11_13-m2-intake-and-ba-plan.md` |
 | M3: Software Architect | Not started | — |
 | M4: Component subgraph | Not started | — |
 | M5: Integration, staging and QA | Not started | — |
@@ -61,6 +61,39 @@ half of the acceptance criterion (human-run, not CI).
 Full detail, including deliberate not-yet-built pieces (`run_agent_loop`, per-kind artifact export
 paths, concrete ContextBuilder subclasses — all scheduled for M2+): see
 `docs/plans/2026_11_13-m1-engine-foundation-plan.md`.
+
+## M2 — detail
+
+**Done 2026-11-13.** All in `asct-be-engine`. `ProjectBrief` (versioned Artifact, one version per
+chat turn), `Requirement`/`Milestone` (plain records living inside new `RequirementsArtifact`/
+`MilestonesArtifact` collection artifacts). Intake is a single-node LangGraph
+(`appsmith/roles/intake.py`, `appsmith/graphs/intake_graph.py`) checkpointed per project directory —
+confirmed empirically that a partial `invoke()` input merges with the prior checkpoint rather than
+overwriting it, which is what makes a CLI process resumable across separate runs. BA
+(`appsmith/roles/ba.py`) makes one LLM call per project; a Pydantic cross-reference validator
+(every requirement's `milestone_id` must name a real milestone) reuses `LLMClient`'s existing
+retry loop with no new machinery, and each milestone's `requirement_ids` is derived
+deterministically rather than asked of the model, to avoid trusting a small model to keep two
+lists in sync. Real system prompts (with worked examples) replace the M1 placeholders for both
+roles. `appsmith chat <project>` and `appsmith run <project> --stop-after ba` round out the CLI.
+
+Found and fixed a real `LLMClient` bug along the way: it called its `chat_model_factory` fresh on
+every `generate_structured()` call, so a stateful `FakeChatModel` would silently replay its first
+scripted response forever in any multi-call test instead of advancing (invisible in M1, where every
+test only ever made one call per `LLMClient`). Fixed by caching one chat model instance per
+`ModelProfile.id`, which also avoids reconstructing a real `ChatOpenAI` client on every production
+call.
+
+**Acceptance verification:** done. `tests/test_sample_briefs_ba.py` runs BA against all three
+sample briefs (`appsmith/eval/sample_briefs.py` — the same three the spec names for M8's eval
+harness, added now because M2 needs them): output validates, every requirement has at least one
+acceptance criterion, every requirement belongs to exactly one real milestone. CLI tested at three
+levels (graphs/nodes directly, the CLI's injectable wrapper functions, and `main()` with real
+argv). Full suite: `uv run pytest` (42 passed), `ruff check .` (clean), `mypy appsmith` (clean, 35
+source files).
+
+Full detail, including the `LLMClient` caching fix and deliberate not-yet-built pieces (`gate_ba`,
+per-kind artifact export file paths): see `docs/plans/2026_11_13-m2-intake-and-ba-plan.md`.
 
 ## Working agreements for future sessions
 
