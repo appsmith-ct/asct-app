@@ -273,6 +273,24 @@ with an isolated settings db. Backend: `uv run pytest` (175 passed), `ruff check
 Full detail, including every scope decision and all ten bug diagnoses: see
 `docs/plans/2026_11_14-m6-api-and-ui-plan.md`.
 
+**Post-M6 fixes against a real local model (2026-11-14):** testing the chat screen against a real
+endpoint (a heavily quantized local "thinking" model) surfaced two bugs the FakeLLM suite couldn't
+have caught — `send_state` only attached the accumulated brief to the final `"ready"` WS frame, so
+the Project Brief panel stayed empty all conversation; and the UI's question-rendering compared
+new text against the previous turn's, so a model re-asking the same clarifying question twice in a
+row (observed for real, not hypothetical — five times in one conversation) had every repeat
+silently dropped. Both fixed; see the two engine/UI commits from that date for detail.
+
+That same session also found that `langchain_openai.ChatOpenAI` silently drops the non-standard
+`reasoning_content` field local "thinking" models attach (confirmed directly against the real
+model with the raw `openai` SDK: ~2100 completion tokens of hidden reasoning for a one-sentence
+reply, none of it visible anywhere). Added `appsmith.core.reasoning_chat_model.ReasoningChatOpenAI`
+to recover it, threaded it through `LLMClient`/`CallTracer` (new `reasoning` column, migration
+`446e95d1f452`), and added an **Observability** panel to the Chat screen (reasoning + raw
+prompt/response per intake turn, via the existing `GET /runs/{id}/llm-calls`). Intake never calls
+tools, so there's no tool-call data to show there yet — that would need tracing wired into
+`appsmith.core.agent_loop` for tech_lead/developer, not done here.
+
 ## Working agreements for future sessions
 
 - Confirm the active milestone against this file before writing code; don't build ahead of the current

@@ -1067,6 +1067,17 @@
           "retry_index": {
             "type": "integer",
             "title": "Retry Index"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
           }
         },
         "type": "object",
