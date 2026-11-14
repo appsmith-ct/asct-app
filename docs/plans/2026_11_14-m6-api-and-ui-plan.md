@@ -191,3 +191,74 @@ re-verified against a fresh `git clone --recurse-submodules` of `asct-app`. Fron
 - M7's milestone loop (`after_milestone` gate, "run milestones in order", change requests) —
   `build_milestone` still builds every component the Architecture lists in one pass.
 - Code-splitting the UI bundle (`vite build` warns at 627 kB) — not a correctness issue, deferred.
+
+## Addendum (2026-11-14): real-model fixes, reasoning capture, and live chat streaming
+
+Testing the Chat screen against the user's own local model (a heavily quantized "thinking" model,
+reached over the network — base URL/model id changed mid-session, confirming profiles are genuinely
+just data, no restart needed) surfaced work beyond the original M6 scope, done the same day:
+
+**Two UI bugs, found only against a real (non-scripted) model:**
+- `send_state` (`appsmith/api/routers/chat.py`) only attached the accumulated brief to the final
+  `"ready"` WS frame — the Project Brief panel stayed empty all conversation. Now sent on every
+  frame.
+- The chat UI compared each new question's *text* against the previous turn's to decide whether to
+  render it. A quantized model re-asking the same clarifying question twice in a row (confirmed for
+  real — five times in one observed conversation) had every repeat silently dropped, because both
+  React's own same-value state bail-out and an explicit `lastQuestion` ref treated "same text" as
+  "nothing new." Fixed by tagging each question with a monotonic sequence number
+  (`useChatSocket.ts`'s `ChatQuestion`), so render decisions key on message identity, not content.
+
+**`reasoning_content` recovery.** `langchain_openai.ChatOpenAI` deliberately drops non-standard
+response fields (its own module docstring says to use a provider-specific subclass instead) —
+confirmed directly against the real endpoint that a "thinking" model can burn ~2100 completion
+tokens of hidden reasoning for a one-sentence reply, previously invisible everywhere, which is the
+likely explanation for a context-window-exceeded failure reported mid-session. Added
+`appsmith.core.reasoning_chat_model.ReasoningChatOpenAI`, overriding both `_create_chat_result`
+(blocking calls) and `_convert_chunk_to_generation_chunk` (streaming) to recover it from the raw
+response — the streaming case needed its own empirical dig: with `response_format` bound (always,
+for structured output), `ChatOpenAI` routes through the `openai` SDK's beta chat-completions
+streaming helper, whose per-token events nest the real payload under a `"chunk"` key instead of
+putting `choices` at the top level the way plain streaming does. Threaded through
+`LLMClient`/`CallTracer` into a new `llm_calls.reasoning` column (migration `446e95d1f452`).
+
+**Live streaming chat UI.** The initial Observability panel (reasoning + raw prompt/response per
+turn, read after the fact from `GET /runs/{id}/llm-calls`) wasn't what was actually asked for —
+real-time: a typing indicator, reasoning and the final answer streaming in token by token, the
+input/send button disabled for the turn's duration, and live token/elapsed/tokens-per-second stats.
+Built as a new path through the existing pipeline rather than a parallel one:
+- `LLMClient.generate_structured` gained an optional `on_delta: Callable[[str, str], None] | None`
+  parameter (default `None`, zero behavior change for ba/sa/tech_lead/developer/qa, none of which
+  pass it). When given, a new `_stream_one` helper drives `chat_model.stream(...)` instead of
+  `.invoke()`, calling `on_delta("reasoning"|"content", text)` per chunk and returning the same
+  `(response_text, reasoning_text)` the blocking path produces — the validate/retry/trace loop
+  around it is completely unchanged. `FakeChatModel`/`ScenarioFakeChatModel` don't override
+  `_stream`, so `BaseChatModel`'s default streaming fallback applies: one chunk with the whole
+  response, which exercises the same code path in tests without needing real per-token behavior.
+- `make_intake_node` takes `on_delta` as a constructor argument, not a per-call one — the chat WS
+  already rebuilds the node fresh every turn (`_compile_intake`), so a different callback per turn
+  just means constructing a different node, no mutable shared state needed.
+- The chat WS (`chat.py`) sends a `{"kind": "turn_started"}` frame the instant an answer arrives
+  (so the UI can disable input immediately, before the first token), then bridges `on_delta` —
+  called *from the worker thread* `_advance_turn` runs on — to the async send loop via an
+  `asyncio.Queue` + `loop.call_soon_threadsafe`, the same pattern `appsmith.api.run_manager`
+  already uses for the run-events WS. Each delta goes out as `{"kind": "reasoning_delta"|
+  "content_delta", "text": "..."}`.
+- Frontend: `useChatSocket.ts` accumulates `liveReasoning`/`liveContent` from delta frames and
+  exposes `isThinking`; `src/components/LiveTurn.tsx` renders the in-progress turn — a bouncing-dot
+  indicator before any token arrives, a collapsible auto-open reasoning block (with its own
+  auto-scroll-to-bottom, since it's height-capped and would otherwise stay pinned at the first
+  screenful forever), the streaming answer, and a ticking tokens/elapsed/tokens-per-second row
+  (150ms interval, token count via the same chars-per-token heuristic
+  `appsmith.core.tokencount.approx_tokens` uses server-side). `Chat.tsx` disables the input and
+  send button while `isThinking`.
+- Verified against the real model via the screenshot pipeline (not just the fake-LLM e2e test):
+  live reasoning filling a growing collapsible box, tick counts climbing turn over turn (e.g. 44 →
+  368 → 921 tokens across three captures of one turn), the auto-scroll keeping the latest text in
+  view. `pnpm run e2e` needed two assertions changed to `exact: true` — the Observability panel's
+  raw response text now legitimately contains the same substrings ("goal", the next question) the
+  chat bubbles show, which a loose `getByText` can no longer tell apart.
+
+No tool-call tracing was added — intake never calls tools, so there's nothing to stream there. That
+would need tracing wired into `appsmith.core.agent_loop` for tech_lead/developer, a separate piece
+of work if wanted later.

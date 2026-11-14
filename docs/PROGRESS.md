@@ -291,6 +291,17 @@ prompt/response per intake turn, via the existing `GET /runs/{id}/llm-calls`). I
 tools, so there's no tool-call data to show there yet — that would need tracing wired into
 `appsmith.core.agent_loop` for tech_lead/developer, not done here.
 
+That panel turned out not to be what was actually wanted — real-time, not after-the-fact. Replaced
+with live token-by-token streaming: `LLMClient.generate_structured` gained an optional `on_delta`
+callback (default `None`, every other role unaffected) that drives `chat_model.stream(...)` instead
+of `.invoke()`; the chat WS bridges it to the client as `turn_started`/`reasoning_delta`/
+`content_delta` frames (same `asyncio.Queue` + `call_soon_threadsafe` pattern `run_manager` already
+uses for run events). The Chat screen now shows a live typing indicator, the model's reasoning
+streaming into an auto-scrolling collapsible block, the answer typing in below it, and a ticking
+tokens/elapsed/tokens-per-second row, with input disabled for the turn's duration. Verified against
+the real model via the screenshot pipeline, not just the fake-LLM e2e test. Full detail in the plan
+doc's 2026-11-14 addendum.
+
 ## Working agreements for future sessions
 
 - Confirm the active milestone against this file before writing code; don't build ahead of the current
