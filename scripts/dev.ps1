@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 $engine = Start-Process -FilePath "uv" `
-    -ArgumentList "run", "uvicorn", "appsmith.api.main:app", "--reload", "--port", "8000" `
+    -ArgumentList "run", "appsmith", "serve", "--port", "8000" `
     -WorkingDirectory (Join-Path $root "asct-be-engine") `
     -PassThru -NoNewWindow
 

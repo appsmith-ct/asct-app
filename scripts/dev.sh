@@ -9,7 +9,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-(cd asct-be-engine && uv run uvicorn appsmith.api.main:app --reload --port 8000) &
+(cd asct-be-engine && uv run appsmith serve --port 8000) &
 ENGINE_PID=$!
 
 (cd asct-fe-desktop && pnpm dev) &
