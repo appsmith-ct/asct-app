@@ -17,7 +17,7 @@ Last updated: 2026-11-14
 | M3: Software Architect | **Done** | `docs/plans/2026_11_13-m3-software-architect-plan.md` |
 | M4: Component subgraph | **Done** | `docs/plans/2026_11_14-m4-component-subgraph-plan.md` |
 | M5: Integration, staging and QA | **Done** | `docs/plans/2026_11_14-m5-integration-staging-qa-plan.md` |
-| M6: API and UI | Not started | — |
+| M6: API and UI | **Done** | `docs/plans/2026_11_14-m6-api-and-ui-plan.md` |
 | M7: Milestone loop and change requests | Not started | — |
 | M8: Packaging and evaluation | Not started | — |
 
@@ -226,6 +226,52 @@ files) — re-verified against a fresh `git clone --recurse-submodules` of `asct
 
 Full detail, including every scope decision and the exact bug diagnoses: see
 `docs/plans/2026_11_14-m5-integration-staging-qa-plan.md`.
+
+## M6 — detail
+
+**Done 2026-11-14.** Spans both submodules. New package `appsmith/api/` (`asct-be-engine`): a
+background-thread `RunManager` that drives a project-graph run and makes human gates real for the
+first time (`interrupt_before` recomputed per round from the stored gates config, resumed via
+`POST /runs/{id}/control {"action":"approve_gate"}`); routers for projects (incl. new read-only
+file-browsing endpoints for the Workspace screen), the intake chat WS, run start/status/control/
+events-WS/artifact/LLM-call/metrics inspection, and settings; a new `core/metrics.py` aggregation
+layer; `ScenarioFakeChatModel` (`core/fake_llm.py`) — a fully-scripted, internally-consistent fake
+that drives the *whole* engine (intake → BA → SA → gate → component build → QA) for
+`appsmith serve --fake-llm`, verified to reach a real `"ready"` milestone end to end. `asct-fe-desktop`
+went from the stock M0 Vite scaffold to all seven screens (Tailwind v4 + a hand-built
+shadcn-style component set — the `shadcn` CLI itself errors against this repo's tsconfig layout,
+on multiple CLI versions, so the components are copied source directly instead, which is shadcn's
+own distribution model anyway), `react-router` navigation, and a generated API client
+(`openapi-fetch` + types from `docs/api/openapi.json`).
+
+**The screenshot pipeline the user asked for** (`scripts/screenshot.mjs`,
+`scripts/interact-and-shot.mjs`, both using Playwright's bundled Chromium) was used continuously
+while building the screens, not just at the end, and directly caught four real UI bugs before
+they shipped: the sidebar's project nav never appearing (`useParams` outside the route tree),
+Pipeline nodes always showing "idle" (`||=` never overriding an already-truthy `'idle'` string),
+the chat WS never closing cleanly (missed in the test suite because the in-process `TestClient`
+tolerates it, but a real `websockets` client against a live server doesn't), and the Workspace
+file tree being cluttered with `.venv`/cache directories. Ten bugs total across both repos — see
+the plan doc for the full list, including two non-obvious backend ones only reachable once the API
+introduced genuine multi-threading (a Windows SQLite connection-pooling file lock breaking
+`DELETE /projects/{id}`, and Alembic's `env.py` not being thread-safe).
+
+**Scope notes:** `run_id == project_id` (no separate run entity exists yet); only `approve_gate` is
+implemented among `/runs/{id}/control`'s actions; the Artifacts screen has no diff view and the
+Workspace screen has no lint/test-result panel — both real, working, read-only views, just not the
+richest version the spec's screen descriptions gesture at. Full reasoning for every decision is in
+the plan doc.
+
+**Acceptance verification:** done. `asct-fe-desktop/e2e/smoke.spec.ts` (`pnpm run e2e`) is the
+literal acceptance scenario — create a project, chat it to a frozen brief, start a run, wait for
+the real `after_sa` gate, approve it through the UI, then confirm the Runs and Artifacts screens
+show real data — passing against a real, self-started `appsmith serve --fake-llm` + `vite` pair
+with an isolated settings db. Backend: `uv run pytest` (175 passed), `ruff check .` (clean),
+`mypy appsmith` (clean, 63 source files) — re-verified against a fresh
+`git clone --recurse-submodules` of `asct-app`. Frontend: `pnpm build` and `pnpm lint` both clean.
+
+Full detail, including every scope decision and all ten bug diagnoses: see
+`docs/plans/2026_11_14-m6-api-and-ui-plan.md`.
 
 ## Working agreements for future sessions
 

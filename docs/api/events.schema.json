@@ -1,0 +1,235 @@
+{
+  "$defs": {
+    "ArtifactWritten": {
+      "properties": {
+        "kind": {
+          "const": "artifact_written",
+          "default": "artifact_written",
+          "title": "Kind",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "artifact_kind": {
+          "title": "Artifact Kind",
+          "type": "string"
+        },
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "artifact_kind",
+        "artifact_id",
+        "version"
+      ],
+      "title": "ArtifactWritten",
+      "type": "object"
+    },
+    "GateReached": {
+      "properties": {
+        "kind": {
+          "const": "gate_reached",
+          "default": "gate_reached",
+          "title": "Kind",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "gate": {
+          "title": "Gate",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "gate"
+      ],
+      "title": "GateReached",
+      "type": "object"
+    },
+    "LLMCallRecorded": {
+      "properties": {
+        "kind": {
+          "const": "llm_call_recorded",
+          "default": "llm_call_recorded",
+          "title": "Kind",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "node": {
+          "title": "Node",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "retry_index": {
+          "title": "Retry Index",
+          "type": "integer"
+        },
+        "validation_outcome": {
+          "title": "Validation Outcome",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "node",
+        "role",
+        "retry_index",
+        "validation_outcome"
+      ],
+      "title": "LLMCallRecorded",
+      "type": "object"
+    },
+    "MetricsUpdated": {
+      "properties": {
+        "kind": {
+          "const": "metrics_updated",
+          "default": "metrics_updated",
+          "title": "Kind",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Metrics",
+          "type": "object"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "metrics"
+      ],
+      "title": "MetricsUpdated",
+      "type": "object"
+    },
+    "NodeFinished": {
+      "properties": {
+        "kind": {
+          "const": "node_finished",
+          "default": "node_finished",
+          "title": "Kind",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "node": {
+          "title": "Node",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "success",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "node",
+        "status"
+      ],
+      "title": "NodeFinished",
+      "type": "object"
+    },
+    "NodeStarted": {
+      "properties": {
+        "kind": {
+          "const": "node_started",
+          "default": "node_started",
+          "title": "Kind",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "node": {
+          "title": "Node",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "node"
+      ],
+      "title": "NodeStarted",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/NodeStarted"
+    },
+    {
+      "$ref": "#/$defs/NodeFinished"
+    },
+    {
+      "$ref": "#/$defs/LLMCallRecorded"
+    },
+    {
+      "$ref": "#/$defs/ArtifactWritten"
+    },
+    {
+      "$ref": "#/$defs/GateReached"
+    },
+    {
+      "$ref": "#/$defs/MetricsUpdated"
+    }
+  ]
+}
