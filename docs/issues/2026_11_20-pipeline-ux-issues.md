@@ -241,8 +241,11 @@ to poll for live progress anyway (see ISSUE-6).
 
 ### Symptom
 
-Found while driving the app for the issues above: an intake turn sat in flight for **more than
-eight minutes** with no output, where the slowest turn ever measured was 211 seconds.
+No observed hang — the apparent 8-minute stall that first prompted this entry turned out to be a
+broken test harness (see the withdrawn ISSUE-13), and the chat path has since been watched
+streaming correctly end to end. **This entry stands on the code, not on an incident:** the absence
+of a timeout is verified directly, and it is a latent hang waiting for the first dropped
+connection.
 
 ### Cause
 
@@ -255,12 +258,13 @@ openai client timeout: None
 
 `ReasoningChatOpenAI` is constructed without `request_timeout`, langchain passes that `None`
 straight to the openai SDK, and the SDK passes it to httpx — where `None` means *disable the
-timeout*, not *use a default*. A connection that stalls or is silently dropped blocks the calling
-thread indefinitely. For a run, that means the node never finishes, no event is ever published,
-and the Pipeline screen (already saying nothing, per ISSUE-4) keeps saying nothing forever.
+timeout*, not *use a default*. A connection that stalls or is silently dropped would block the
+calling thread indefinitely. For a run, that means the node never finishes, no event is ever
+published, and the Pipeline screen (already saying nothing, per ISSUE-4) keeps saying nothing
+forever.
 
-This is the engine-side half of the user's "I am not sure if the agent is stuck or doing
-something" — right now, *neither the user nor the engine can tell*.
+It also compounds ISSUE-12: a `stop` control cannot interrupt a call that cannot time out, so
+"stop" could never be responsive while this stands.
 
 ### Fix
 
@@ -316,53 +320,32 @@ data loss and isn't.
 
 ---
 
-## ISSUE-13 — An answer sent during a chat-socket reconnect strands the conversation forever
+## ISSUE-13 — WITHDRAWN: "an answer sent during a reconnect strands the conversation"
 
-**Status:** Open
-**Area:** `asct-fe-desktop/src/api/useChatSocket.ts`
-**Severity:** Major — the chat becomes permanently unusable, recoverable only by reloading.
+**Status:** **Withdrawn 2026-11-21** — not a real bug. Recorded rather than deleted so nobody
+re-reports it from the same misreading.
 
-### Symptom
+I reported that sending an answer left the chat permanently stuck with a spinner that never
+cleared, and blamed a race between `status` and `socketRef.current`. That was wrong, and the fault
+was in my own test harness.
 
-Hit while driving the app: an answer was sent about a second after the Chat screen mounted. The
-engine **did the work** — the call is in `llm_calls`, `ProjectBrief` v1 was written with all three
-features — but the UI never came back. The typing indicator stayed up and the input stayed
-disabled indefinitely. A fresh page load on the same project was completely healthy.
+The chat input's **placeholder changes while a turn is in flight** —
+`'Type your answer…'` becomes `'Waiting for a response…'` ([Chat.tsx](../../asct-fe-desktop/src/pages/Chat.tsx)).
+My driver waited on `input[placeholder="Type your answer…"]`, which therefore matched *nothing*
+during a turn: `document.querySelector(...)?.disabled === true` evaluated to `undefined === true`,
+i.e. false, forever. Every "stranded" turn was that selector, not the app. (Compounded by passing
+`{timeout}` as `waitForFunction`'s second *positional* argument, which is `arg`, not options — so
+my explicit timeouts were silently ignored and page defaults applied, making the durations look
+far worse than they were.)
 
-### Cause
+An instrumented run settled it: one page, every WS frame logged, one answer sent — the socket sent
+the answer, the engine streamed `reasoning_delta` frames back token by token within seconds, and
+the input returned. The chat path works correctly, including the streaming the Chat screen was
+built for.
 
-`useChatSocket` tracks the connection in two places that can disagree: `status` (React state,
-updated in `onopen`/`onclose`) and `socketRef.current` (the actual socket). React StrictMode
-mounts effects twice in dev, so the hook opens socket #1, closes it on cleanup, and opens socket
-#2 — and for a moment `status` is still `'open'` (from #1) while `socketRef.current` is #2, which
-is still `CONNECTING`.
-
-`sendAnswer` does `socketRef.current?.send(...)` with **no `readyState` check**
-([useChatSocket.ts:166](../../asct-fe-desktop/src/api/useChatSocket.ts#L166)), and `submit()`
-guards on `readyToBuild || isThinking` but not on the connection
-([Chat.tsx:67-71](../../asct-fe-desktop/src/pages/Chat.tsx#L67-L71)) — the *input* is disabled on
-`status !== 'open'`, which is exactly the stale value. So the answer goes out on a socket the
-client has already discarded (or throws on one that isn't open yet).
-
-Either way the turn is accepted by the engine and the reply is delivered to a socket nobody is
-listening to. The optimistic local append has already added the user's message and set
-`isThinking`, and nothing ever clears it.
-
-### Why it matters beyond dev
-
-StrictMode is what *reveals* it, but the underlying fault is real in production: any reconnect —
-a dropped socket, an engine restart, a laptop waking up — reopens the socket, and there is nothing
-to stop a send landing in the same gap. The failure mode is the worst kind: the engine does the
-work and charges the time, and the user sees a frozen screen.
-
-### Fix
-
-1. Guard the send on `socketRef.current?.readyState === WebSocket.OPEN`, and derive the disabled
-   state from the same check rather than from a separate `status` variable that can lag.
-2. If a send can't go out, don't optimistically append the message or set `isThinking` — surface
-   it, so the user can retry rather than watch a dead spinner.
-3. Consider a watchdog on `isThinking`: a turn that has produced no delta frames for N seconds is
-   either very slow or lost, and the UI should say which it can't tell (related to ISSUE-11).
+**Worth keeping from it:** a `readyState` guard on `sendAnswer` is still a reasonable hardening
+(there genuinely is no check today), but there is no evidence of it failing in practice, and it
+should not be presented as a bug.
 
 ---
 
