@@ -5,7 +5,15 @@ Claude Code sessions. For what each milestone requires, see
 `docs/specs/2026_11_13-appsmith_ct_implementation_specification.md`, section 10. For how a specific
 milestone was executed, see the matching dated plan in `docs/plans/`.
 
-Last updated: 2026-11-14
+Last updated: 2026-11-20
+
+## Known issues
+
+Issues found by using the app against a real local model, recorded but deliberately not fixed yet:
+`docs/issues/2026_11_20-post-m6-issues.md` (chat transcript not persisted across a refresh; the
+Observability panel needing an OpenCode-style modal with timestamps and context-window info; and
+retargeting the shipped model defaults from `bonsai-27b` to `Qwen3.6-35B-A3B`). Scheduled for
+immediately after M7 — see that document's "Fix order" section.
 
 ## Milestone status
 
@@ -18,7 +26,7 @@ Last updated: 2026-11-14
 | M4: Component subgraph | **Done** | `docs/plans/2026_11_14-m4-component-subgraph-plan.md` |
 | M5: Integration, staging and QA | **Done** | `docs/plans/2026_11_14-m5-integration-staging-qa-plan.md` |
 | M6: API and UI | **Done** | `docs/plans/2026_11_14-m6-api-and-ui-plan.md` |
-| M7: Milestone loop and change requests | Not started | — |
+| M7: Milestone loop and change requests | **Done** | `docs/plans/2026_11_20-m7-milestone-loop-and-change-requests-plan.md` |
 | M8: Packaging and evaluation | Not started | — |
 
 ## M0 — detail
@@ -301,6 +309,60 @@ streaming into an auto-scrolling collapsible block, the answer typing in below i
 tokens/elapsed/tokens-per-second row, with input disabled for the turn's duration. Verified against
 the real model via the screenshot pipeline, not just the fake-LLM e2e test. Full detail in the plan
 doc's 2026-11-14 addendum.
+
+## M7 — detail
+
+**Done 2026-11-20.** Spans both submodules. The project graph stopped being a line and became the
+cycle the spec's mermaid diagram draws: `build_milestone -> milestone_demo -> next_milestone ->
+ba_change -> sa_delta -> build_milestone`. New engine modules `graphs/milestone_scope.py` (which
+components does *this* milestone need — requirement coverage, closed over the contract-derived
+dependency graph, in dependency order) and `graphs/change_request.py` (`ba_change`/`sa_delta`,
+both no-ops when no change request is open, both delegating to the same BA/SA nodes the first pass
+uses so there's one place that knows how requirements and architectures are produced). New
+artifacts `ChangeRequest`, `MilestoneDemo`, `ChangeImpact`; new `stale_artifacts` table (migration
+`b7c21a4d9e30`) behind `ArtifactStore.mark_stale`/`clear_stale`/`is_stale`/`list_stale`.
+`milestone_demo` deliberately makes no LLM call — every field on a `MilestoneDemo` is something
+the engine already knows for certain. Which components a change request affects is decided by
+**diffing stored `ComponentSpec`s** (ignoring envelope fields), never by asking the SA to report
+its own changes. API: `POST /runs/{id}/control {"action":"change_request"}` (409 unless parked at
+`after_milestone` — the spec's "accepted only here", enforced where it can be),
+`GET /runs/{id}/milestones`, stale markers on the artifact listing, and a `version` parameter on
+the artifact endpoint. CLI: `appsmith change-request`. UI: the Pipeline screen's Milestones panel,
+the milestone demo pause with its change-request control, stale badges on Artifacts.
+
+Found and fixed five real bugs. Three engine-side: **a LangGraph conditional edge sees only the
+annotated input schema of the node it departs from** (so the router after `next_milestone` read
+`milestone_count` as `None` and silently ended every run after milestone 1 — confirmed as general
+LangGraph behaviour with a standalone reproduction, then fixed by reading progress from the
+artifact store instead of graph state); **per-round artifact versions collided across milestones**
+(`round_number + 1` meant milestone 2's round 0 found milestone 1's `IntegrationReport` and
+short-circuited on it, reporting milestone 1's result as milestone 2's); and **a stale component
+could never actually rebuild**, because a finished component build leaves a checkpoint at END that
+returns the finished state without running anything — fixed by giving each build version its own
+checkpoint thread. Two UI-side, both caught by the screenshot pipeline and neither by
+`pnpm build`/`pnpm lint`: **`<ReactFlow fitView>` fits once at mount**, so the milestone gate
+banner appearing above the canvas left the nodes scrolled out of view until a page reload; and the
+Artifacts screen's **version picker was inert** (the endpoint had no `version` parameter and always
+returned the latest — harmless until M7 made v2s real).
+
+Also confirmed empirically before building on it: **`interrupt_before` does not re-trigger on the
+node you're resuming into**, which is what lets one unchanging `interrupt_before=["next_milestone"]`
+pause after every milestone. M6's `_interrupt_nodes_for` carried an exclusion built on the opposite
+assumption; it was unnecessary then and would have silently disabled the milestone gate once the
+loop closed. Removed.
+
+**Acceptance verification:** done.
+`tests/test_milestone_loop.py::test_change_request_produces_a_new_architecture_and_rebuilds_only_the_affected`
+is the criterion literally — a change request raised at milestone 1's demo gate, between two
+separate top-level graph invocations, producing Architecture v2 and rebuilding only the component
+whose spec actually changed. `uv run pytest` (199 passed, ~107s including every slow
+real-subprocess test), `ruff check .` clean, `mypy appsmith` clean (66 source files). Frontend
+`pnpm build`/`pnpm lint` clean, and `pnpm run e2e` — the smoke test extended to drive the milestone
+demo gate and submit a change request through the UI — passes against a real self-started
+`appsmith serve --fake-llm` + `vite` pair.
+
+Full detail, including every scope decision and all five bug diagnoses: see
+`docs/plans/2026_11_20-m7-milestone-loop-and-change-requests-plan.md`.
 
 ## Working agreements for future sessions
 

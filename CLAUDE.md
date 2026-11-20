@@ -32,6 +32,13 @@ TypeScript client from that export, never from hand-guessed shapes.
   clone). A submodule is checked out at whatever commit the root repo's index points to — after changing a
   submodule, commit the pointer update in the root repo as its own commit, separate from the submodule's
   own commit.
+- **Commit without asking.** The user has given standing permission to commit at your own
+  judgement — don't stop to ask. Commit when a coherent piece of work is finished and verified
+  (tests, lint and type-check green), not mid-change. Keep the existing history's shape: imperative
+  one-line subjects, a short body explaining *why*, milestone work prefixed `M<n>:`, and a
+  `Co-Authored-By` trailer. Work lands on `main` directly, as every commit in all three repos has
+  so far — this is a solo project with a linear history, so branching per change would only add a
+  merge step nobody asked for. Pushing is still a separate decision: ask before `git push`.
 - Documents land in `docs/`, dated `YYYY_MM_DD-<slug>.md` (matching `docs/specs/` and `docs/plans/`
   already there) — this is a project convention, so date new plans/specs the same way rather than
   overwriting prior dated files.

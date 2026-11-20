@@ -413,12 +413,56 @@
         }
       }
     },
+    "/runs/{run_id}/milestones": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Run Milestones",
+        "description": "The milestone plan and how far through it the run is \u2014 what the Pipeline screen needs to\nshow the milestone loop rather than a single build (spec section 9, screen 3).\n\nProgress is read from stored `MilestoneReport` versions rather than from the run's in-memory\ngraph state, so it's still answerable after an engine restart, when `RunManager` knows nothing\nabout the run at all.",
+        "operationId": "get_run_milestones_runs__run_id__milestones_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MilestonesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/runs/{run_id}/artifacts": {
       "get": {
         "tags": [
           "runs"
         ],
         "summary": "List Run Artifacts",
+        "description": "Every artifact at its latest version, each carrying its stale marker (M7).\n\nStaleness is joined in here rather than offered as a separate endpoint because it's never\nuseful on its own: \"which artifacts are stale\" is only ever asked while rendering the artifact\nlist, and a second request would let the two answers disagree.",
         "operationId": "list_run_artifacts_runs__run_id__artifacts_get",
         "parameters": [
           {
@@ -465,6 +509,7 @@
           "runs"
         ],
         "summary": "Get Artifact",
+        "description": "One artifact's content, at `version` or (by default) its latest.\n\nThe `version` parameter arrived with M7. Before it, every artifact in practice had exactly one\nversion, so \"latest\" was the only answer there was \u2014 and the Artifacts screen's version picker\nwas quietly inert, re-fetching the latest whichever version you chose. M7 is the first\nmilestone that genuinely produces v2s (a change request re-runs the BA and SA), which turns\nthat from a harmless stub into a screen that shows the wrong data while looking right.",
         "operationId": "get_artifact_runs__run_id__artifacts__kind___artifact_id__get",
         "parameters": [
           {
@@ -492,6 +537,22 @@
             "schema": {
               "type": "string",
               "title": "Run Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
             }
           }
         ],
@@ -929,6 +990,16 @@
           "created_at": {
             "type": "string",
             "title": "Created At"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "default": false
+          },
+          "stale_reason": {
+            "type": "string",
+            "title": "Stale Reason",
+            "default": ""
           }
         },
         "type": "object",
@@ -966,6 +1037,48 @@
           "versions"
         ],
         "title": "ArtifactVersionsResponse"
+      },
+      "ChangeRequestSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "raised_at_milestone_id": {
+            "type": "string",
+            "title": "Raised At Milestone Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "applied"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "text",
+          "raised_at_milestone_id",
+          "status",
+          "created_at"
+        ],
+        "title": "ChangeRequestSummary"
       },
       "CreateProjectRequest": {
         "properties": {
@@ -1126,6 +1239,105 @@
         },
         "type": "object",
         "title": "Limits"
+      },
+      "MilestoneProgress": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "demo_description": {
+            "type": "string",
+            "title": "Demo Description"
+          },
+          "requirement_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Requirement Ids"
+          },
+          "component_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Component Ids"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "ready",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "unresolved_bug_count": {
+            "type": "integer",
+            "title": "Unresolved Bug Count",
+            "default": 0
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "id",
+          "title",
+          "demo_description",
+          "requirement_ids",
+          "component_ids",
+          "status"
+        ],
+        "title": "MilestoneProgress",
+        "description": "One milestone's place in the run: what the BA planned, which components it needs, and how\nits build turned out (absent for a milestone that hasn't been built yet)."
+      },
+      "MilestonesResponse": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "current_index": {
+            "type": "integer",
+            "title": "Current Index"
+          },
+          "milestones": {
+            "items": {
+              "$ref": "#/components/schemas/MilestoneProgress"
+            },
+            "type": "array",
+            "title": "Milestones"
+          },
+          "change_requests": {
+            "items": {
+              "$ref": "#/components/schemas/ChangeRequestSummary"
+            },
+            "type": "array",
+            "title": "Change Requests"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "current_index",
+          "milestones",
+          "change_requests"
+        ],
+        "title": "MilestonesResponse"
       },
       "ModelProfile": {
         "properties": {
@@ -1391,6 +1603,7 @@
             "type": "string",
             "enum": [
               "approve_gate",
+              "change_request",
               "pause",
               "resume",
               "stop",
@@ -1409,6 +1622,17 @@
               }
             ],
             "title": "Node"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
           }
         },
         "type": "object",
