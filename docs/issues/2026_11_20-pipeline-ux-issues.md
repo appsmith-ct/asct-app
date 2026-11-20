@@ -64,13 +64,25 @@ came back empty for every one and nothing was painted. A direct load of the same
 normally, which is exactly why "after a few refreshes I saw that a single BA turn has run" — a
 refresh is a direct load.
 
-**Honest caveat: this is intermittent.** A later attempt to reproduce it deliberately, navigating
-Chat → Pipeline the same way, rendered correctly both times. So it is real (there is a screenshot
-of a blank canvas, and two separate measurements with empty `innerText` while boxes were correct)
-but not reliably triggerable, and the mechanism is not yet pinned down. It is probably the same
-family as the already-fixed `fitView`-on-mount problem: React Flow measures its pane once and the
-Pipeline screen's layout is not settled at that moment. Worth attacking with a deliberate
-remount/measure on route entry rather than another targeted patch.
+**Severity, revised upward after watching a whole run.** This is not a momentary flicker. In the
+session that was driven end to end, the canvas was blank from the moment the Pipeline screen was
+reached, stayed blank across an explicit page reload, and was *still* blank four and a half
+minutes later when the run paused at the `after_sa` gate — see
+`shots-gate-reached.png`, where the Milestones panel is correctly populated with both of the
+BA's milestones beside an entirely empty graph. The nodes were never clickable either: the final
+step of the run-through, clicking the "Build milestone" node, could not complete because there
+was nothing on screen to click.
+
+**It is, however, not reliably triggerable.** Fresh short-lived sessions navigating Chat →
+Pipeline rendered correctly on two deliberate attempts. So the trigger is something about the
+long-lived session — the most likely suspect is that `nodes` is rebuilt as a brand-new array on
+every render, and `refreshStatus` polls every 3 seconds, so React Flow is handed a wholly new node
+set 20 times a minute and may never settle into a measured, visible state. That is a cheap thing
+to test (memoise `nodes`/`edges` and see if the failure stops) and a cheap thing to fix.
+
+It is probably the same family as the already-fixed `fitView`-on-mount problem: React Flow
+measures once, and this screen keeps moving underneath it. Worth attacking by making the node set
+stable and the measurement deterministic on route entry, rather than with another targeted patch.
 
 ### Fix
 
@@ -90,6 +102,18 @@ remount/measure on route entry rather than another targeted patch.
 **Status:** Open
 **Area:** `asct-fe-desktop/src/pages/Pipeline.tsx`
 **Severity:** Minor, but actively misleading — it attributes work to the wrong node.
+
+### Confirmed against a real run
+
+Clicking "Build milestone" on `todo-app-2` would list exactly this and nothing else:
+
+```
+intake_turn (role=intake)
+intake_turn (role=intake)
+intake_turn (role=intake)
+```
+
+— the three intake conversation turns, attributed to the component build.
 
 ### Cause
 
@@ -210,6 +234,13 @@ indicator — a node can be both.)
 ### Symptom
 
 > There was an approve gate and an approve button, but it didn't specify what I'm approving.
+
+Confirmed verbatim from a real run — the banner's entire text content is:
+
+```
+Paused at gate after_sa
+Approve
+```
 
 The banner shows the raw gate id (`after_sa`) and an **Approve** button
 ([Pipeline.tsx:230-238](../../asct-fe-desktop/src/pages/Pipeline.tsx#L230-L238)). The spec's
