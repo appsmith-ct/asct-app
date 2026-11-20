@@ -9,11 +9,20 @@ Last updated: 2026-11-20
 
 ## Known issues
 
-Issues found by using the app against a real local model, recorded but deliberately not fixed yet:
-`docs/issues/2026_11_20-post-m6-issues.md` (chat transcript not persisted across a refresh; the
-Observability panel needing an OpenCode-style modal with timestamps and context-window info; and
-retargeting the shipped model defaults from `bonsai-27b` to `Qwen3.6-35B-A3B`). Scheduled for
-immediately after M7 — see that document's "Fix order" section.
+`docs/issues/2026_11_20-post-m6-issues.md`. **All three issues recorded there are fixed** as of
+2026-11-20: the chat transcript now survives a refresh, the Observability panel is an
+OpenCode-style modal with timestamps and a context-window gauge, and the shipped defaults name
+`Qwen3.6-35B-A3B` with `max_tokens` and the per-role `thinking` switch actually reaching the
+server for the first time.
+
+Fixing the third one meant driving the real model to build a to-do app, which found **four more
+bugs that the FakeLLM suite cannot see by construction** — a scripted fake agrees with whatever
+the engine expects. They're written up in that document under "What the real model actually
+exposed"; the one with the widest blast radius is that **under constrained decoding, a Pydantic
+field with a default is a field the model may silently skip**, which was costing the SA and intake
+real work on every run. Two things remain open and are noted there: reasoning volume is now the
+dominant cost (3k-30k characters per call), and the component build path (Tech Lead, Developers,
+QA) still has not been driven against a real model.
 
 ## Milestone status
 
@@ -363,6 +372,53 @@ demo gate and submit a change request through the UI — passes against a real s
 
 Full detail, including every scope decision and all five bug diagnoses: see
 `docs/plans/2026_11_20-m7-milestone-loop-and-change-requests-plan.md`.
+
+## Post-M7 — real-model retarget and the issues that came with it
+
+**Done 2026-11-20.** Spans both submodules. The shipped defaults moved from `bonsai-27b` to
+`Qwen3.6-35B-A3B` (32k context, `max_tokens: 8192`, `tools: json_action` — `native` described
+nothing, since `run_agent_loop` always uses the json_action protocol), and two settings that had
+been stored, editable and read by nothing now reach the server: `ModelProfile.max_tokens` and the
+per-role `thinking` switch, the latter as `chat_template_kwargs.enable_thinking`, bound per call
+so one cached chat model still serves roles that disagree. `appsmith config reseed` applies
+shipped defaults over an already-seeded database, deliberately leaving system prompts alone.
+Everything was measured against the real endpoint before being relied on — constrained decoding
+with `$defs`/`$ref` works; `enable_thinking: false` takes a trivial reply from 301 tokens/8.7s to
+3 tokens/0.3s; an arbitrary `model` name is accepted by llama.cpp.
+
+**The four bugs driving the real model found**, none of which FakeLLM can surface:
+
+1. **A response that hit the token limit crashed the run.** With `response_format` bound the
+   openai SDK raises `LengthFinishReasonError` rather than returning what was generated, escaping
+   `generate_structured`'s retry loop. Real: one intake turn burned 30,559 characters of reasoning
+   over 211 seconds and returned nothing. Now a traced `length_limit` attempt and a retry that
+   says so, which recovered that exact turn in 16.7s.
+2. **Under constrained decoding, a defaulted field is one the model may skip.** The schema is the
+   grammar; Pydantic's default then masks the omission. The SA omitted `requirement_ids` and
+   failed coverage validation *identically on all three retries* (retrying cannot help — the
+   grammar still allows it), and intake omitted `features`, so a brief listing three features on
+   turn 1 had none by the end. Every LLM-facing output schema is now fully required.
+3. **Intake never saw its own previous brief** — it was asked for the whole updated brief each
+   turn but given only the raw chat, so it re-derived every field from the transcript and dropped
+   things. It now gets the brief as state next to the system prompt.
+4. **The SA confused requirement ids with milestone ids** (`requirement_ids: ["M1", "M2"]`),
+   because both were rendered into one merged list. Fixed at the source with two labelled
+   sections, plus a validator message that names the likely mistake rather than only the symptom.
+
+Prompt work on top: intake gained an explicit "the user said stop" override and a four-question
+ceiling after a real conversation where it asked six questions and never converged despite three
+"nothing else, start building"; both intake and SA were told to think briefly, and why.
+
+Also fixed from the issue list: the chat transcript now replays from the engine's own checkpoint
+(it was never lost, just never sent), and the Observability panel became a modal with a
+context-window gauge and timestamped, expandable raw requests, shared with the Runs screen.
+
+**Verification:** `uv run python scripts/manual_pipeline_check.py "a simple to-do list web app ..."`
+runs **intake -> BA -> SA green against the real model**, producing three traceable requirements,
+two milestones, and a backend/frontend architecture with a contract. The same command before these
+fixes crashed during intake and then failed the SA three times. `uv run pytest` 221 passed, `ruff`
+and `mypy` clean; UI `pnpm build`/`pnpm lint`/`pnpm run e2e` all pass, the last with a new test
+that reloads mid-conversation and asserts the transcript survives.
 
 ## Working agreements for future sessions
 

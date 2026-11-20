@@ -1149,6 +1149,11 @@
             "type": "string",
             "title": "Profile Id"
           },
+          "created_at": {
+            "type": "string",
+            "title": "Created At",
+            "default": ""
+          },
           "prompt_version": {
             "type": "integer",
             "title": "Prompt Version"
@@ -1365,6 +1370,28 @@
             "type": "number",
             "title": "Temperature",
             "default": 0.2
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinking"
           }
         },
         "type": "object",
