@@ -24,7 +24,8 @@ Status key: **Open** = not started, **Fixed** = done and verified.
 > there was nothing in the pipeline page, after a few refreshes I saw that a single BA turn has
 > run. I think the engine is running in the background but the FE is not properly showing them.
 
-Two distinct things, which is why it reads as confusing rather than simply broken.
+Three distinct things, which is why it reads as confusing rather than simply broken. All three
+were reproduced; the measurements below are from a real run against the real model.
 
 ### Cause A — the Start button is correctly hidden, for an invisible reason
 
@@ -52,6 +53,24 @@ deliberately no case for `running`, because when it was written nothing was ever
 running. That is why a refresh eventually "showed that a single BA turn has run": the user hit a
 refresh at the moment the gate was reached, and the `paused_at_gate` fallback finally marked
 `ba`/`sa` as done.
+
+### Cause C — the canvas sometimes paints nothing at all (intermittent)
+
+Captured while reproducing the above: on arriving at the Pipeline screen right after **Start
+build**, the React Flow canvas painted *completely blank* — see
+`C:\devsct-test-projects\shots-pipeline-just-started.png`. The nodes were in the DOM, five
+of them, with correct geometry (`top: 525, h: 32`) and a sane viewport transform, but `innerText`
+came back empty for every one and nothing was painted. A direct load of the same URL rendered
+normally, which is exactly why "after a few refreshes I saw that a single BA turn has run" — a
+refresh is a direct load.
+
+**Honest caveat: this is intermittent.** A later attempt to reproduce it deliberately, navigating
+Chat → Pipeline the same way, rendered correctly both times. So it is real (there is a screenshot
+of a blank canvas, and two separate measurements with empty `innerText` while boxes were correct)
+but not reliably triggerable, and the mechanism is not yet pinned down. It is probably the same
+family as the already-fixed `fitView`-on-mount problem: React Flow measures its pane once and the
+Pipeline screen's layout is not settled at that moment. Worth attacking with a deliberate
+remount/measure on route entry rather than another targeted patch.
 
 ### Fix
 
