@@ -208,9 +208,169 @@ the artifact at the gate remains unimplemented and is a separate, larger piece o
 
 ---
 
+## ISSUE-10 — The node detail panel never refreshes during a run
+
+**Status:** Open
+**Area:** `asct-fe-desktop/src/pages/Pipeline.tsx`
+**Severity:** Major — found while tracing the above, not reported; it compounds ISSUE-4.
+
+### Cause
+
+[Pipeline.tsx:109-114](../../asct-fe-desktop/src/pages/Pipeline.tsx#L109-L114) fetches
+`GET /runs/{id}/llm-calls` in an effect keyed on `[projectId, runStatus?.status]`. The *status
+string* is the dependency, not the status object — and for the entire duration of a run that
+string is `"running"` and never changes. So the call list is fetched once, when the screen mounts,
+and then not again until the run transitions to `paused_at_gate`, `done` or `failed`.
+
+Clicking any node mid-run therefore shows whatever was true at mount — in practice an empty list,
+because at mount the run has usually made no calls yet. Combined with ISSUE-4 (nodes stuck at
+`idle`), the screen has two independent reasons to look like nothing is happening.
+
+The status *object* is rebuilt every 3s by the polling effect above it, so depending on
+`runStatus` rather than `runStatus?.status` would refetch every 3s — which is the intent, and
+presumably what was meant. That's a one-word fix, but the call list is probably the wrong thing
+to poll for live progress anyway (see ISSUE-6).
+
+---
+
+## ISSUE-11 — A model call has no timeout, so a stalled request hangs the run forever
+
+**Status:** Open
+**Area:** `asct-be-engine` — `appsmith/api/deps.py`, `appsmith/cli.py` (chat-model factories)
+**Severity:** Major — turns "the model is slow" into "the run is dead", with no way to tell.
+
+### Symptom
+
+Found while driving the app for the issues above: an intake turn sat in flight for **more than
+eight minutes** with no output, where the slowest turn ever measured was 211 seconds.
+
+### Cause
+
+Nothing sets a request timeout anywhere:
+
+```
+request_timeout attr : None
+openai client timeout: None
+```
+
+`ReasoningChatOpenAI` is constructed without `request_timeout`, langchain passes that `None`
+straight to the openai SDK, and the SDK passes it to httpx — where `None` means *disable the
+timeout*, not *use a default*. A connection that stalls or is silently dropped blocks the calling
+thread indefinitely. For a run, that means the node never finishes, no event is ever published,
+and the Pipeline screen (already saying nothing, per ISSUE-4) keeps saying nothing forever.
+
+This is the engine-side half of the user's "I am not sure if the agent is stuck or doing
+something" — right now, *neither the user nor the engine can tell*.
+
+### Fix
+
+Give the profile a timeout (a `ModelProfile` field, like `max_tokens`) and pass it through both
+chat-model factories. It has to be generous — a legitimate thinking pass genuinely takes minutes —
+but finite, so a stall surfaces as a failed node that can be retried rather than a silent hang.
+Worth pairing with a heartbeat on the events WS so "still waiting, 240s elapsed" is distinguishable
+from "nothing is happening".
+
+---
+
+## ISSUE-12 — A run cannot be stopped, paused, or cancelled
+
+**Status:** Open
+**Area:** `asct-be-engine` — `appsmith/api/run_manager.py`, `appsmith/api/routers/runs.py`;
+`asct-fe-desktop` Pipeline screen
+**Severity:** Major — the only way out of a running build is to kill the engine process.
+
+### Symptom
+
+> The frontend and backend [are] still running from my run. I think it is still running my
+> project's pipeline. There is no way for me to stop it.
+
+Exactly right, and killing the engine is currently the only option.
+
+### Cause
+
+`RunControlRequest.action` declares the spec's full set — `pause`, `resume`, `stop`,
+`retry_node`, `restart_from_node` ([schemas.py:74-82](../../asct-be-engine/appsmith/api/schemas.py#L74-L82))
+— but the route implements two of them and rejects the rest with "not implemented yet"
+([runs.py:121-128](../../asct-be-engine/appsmith/api/routers/runs.py#L121-L128)). The UI offers no
+control for them either. So the API advertises a vocabulary it doesn't honour, which is worse than
+not advertising it: a client can send `{"action": "stop"}`, get `200 OK` with `ok: false`, and
+have nothing happen.
+
+Underneath, a run executes on a `daemon=True` thread inside the engine process
+(`RunManager.start_run`). There is no cancellation token, and the long block is a single
+synchronous model call with **no timeout** (ISSUE-11) — so even a cooperative `stop` would not
+interrupt the call in flight. Killing the process is genuinely the only thing that works today.
+
+Nothing is lost by doing so: every graph is checkpointed, so a restarted engine resumes from the
+last completed node. That is worth saying in the UI, because "kill the server" reads like
+data loss and isn't.
+
+### Fix
+
+1. Implement `stop` as a cooperative cancellation flag the graph checks between nodes, plus a
+   request timeout so an in-flight call can actually be abandoned (ISSUE-11 is a prerequisite for
+   `stop` being responsive rather than "effective after up to N minutes").
+2. Until then, make the API honest: reject unimplemented actions with `501`, not `200 ok:false`.
+3. Give the Pipeline screen a Stop control, and tell the user plainly that stopping is safe
+   because the run resumes from its checkpoint.
+
+---
+
+## ISSUE-13 — An answer sent during a chat-socket reconnect strands the conversation forever
+
+**Status:** Open
+**Area:** `asct-fe-desktop/src/api/useChatSocket.ts`
+**Severity:** Major — the chat becomes permanently unusable, recoverable only by reloading.
+
+### Symptom
+
+Hit while driving the app: an answer was sent about a second after the Chat screen mounted. The
+engine **did the work** — the call is in `llm_calls`, `ProjectBrief` v1 was written with all three
+features — but the UI never came back. The typing indicator stayed up and the input stayed
+disabled indefinitely. A fresh page load on the same project was completely healthy.
+
+### Cause
+
+`useChatSocket` tracks the connection in two places that can disagree: `status` (React state,
+updated in `onopen`/`onclose`) and `socketRef.current` (the actual socket). React StrictMode
+mounts effects twice in dev, so the hook opens socket #1, closes it on cleanup, and opens socket
+#2 — and for a moment `status` is still `'open'` (from #1) while `socketRef.current` is #2, which
+is still `CONNECTING`.
+
+`sendAnswer` does `socketRef.current?.send(...)` with **no `readyState` check**
+([useChatSocket.ts:166](../../asct-fe-desktop/src/api/useChatSocket.ts#L166)), and `submit()`
+guards on `readyToBuild || isThinking` but not on the connection
+([Chat.tsx:67-71](../../asct-fe-desktop/src/pages/Chat.tsx#L67-L71)) — the *input* is disabled on
+`status !== 'open'`, which is exactly the stale value. So the answer goes out on a socket the
+client has already discarded (or throws on one that isn't open yet).
+
+Either way the turn is accepted by the engine and the reply is delivered to a socket nobody is
+listening to. The optimistic local append has already added the user's message and set
+`isThinking`, and nothing ever clears it.
+
+### Why it matters beyond dev
+
+StrictMode is what *reveals* it, but the underlying fault is real in production: any reconnect —
+a dropped socket, an engine restart, a laptop waking up — reopens the socket, and there is nothing
+to stop a send landing in the same gap. The failure mode is the worst kind: the engine does the
+work and charges the time, and the user sees a frozen screen.
+
+### Fix
+
+1. Guard the send on `socketRef.current?.readyState === WebSocket.OPEN`, and derive the disabled
+   state from the same check rather than from a separate `status` variable that can lag.
+2. If a send can't go out, don't optimistically append the message or set `isThinking` — surface
+   it, so the user can retry rather than watch a dead spinner.
+3. Consider a watchdog on `isThinking`: a turn that has produced no delta frames for N seconds is
+   either very slow or lost, and the UI should say which it can't tell (related to ISSUE-11).
+
+---
+
 ## Suggested fix order
 
-ISSUE-4 first: without a trustworthy answer to "where is this run now?", none of the others can be
+ISSUE-4 and ISSUE-10 first, together: they are the two reasons the screen looks dead during a
+run, and without a trustworthy answer to "where is this run now?" none of the others can be
 evaluated by looking at the screen. Then ISSUE-9 and ISSUE-8 (both small, both immediately
-visible). Then ISSUE-6 and ISSUE-7 together — they are the same underlying work (publish finer
+visible), and ISSUE-12's honesty fix (a one-line status code) alongside them. Then ISSUE-11 and
+ISSUE-12's real `stop`, which are the same work. Then ISSUE-6 and ISSUE-7 together — they are the same underlying work (publish finer
 events from the engine, render them), and ISSUE-5 falls out of ISSUE-7 for free.
