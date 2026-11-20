@@ -10,6 +10,13 @@ takes minutes, the page gets refreshed mid-run, and the screen has nothing to sa
 
 Status key: **Open** = not started, **Fixed** = done and verified.
 
+**Two reports in this document were withdrawn after investigation** (ISSUE-4's Cause C, and
+ISSUE-13). Both turned out to be artifacts of headless Chromium under Playwright rather than
+defects in the app. They are kept rather than deleted so the misleading screenshots and logs in
+`asct-test-projects/` aren't mistaken for evidence later. The lesson for anyone extending this
+investigation: **confirm a UI symptom in a real browser before writing it up** — headless
+automation produced two convincing phantoms here.
+
 ---
 
 ## ISSUE-4 — Run progress is invisible, and a refresh loses it entirely
@@ -24,8 +31,9 @@ Status key: **Open** = not started, **Fixed** = done and verified.
 > there was nothing in the pipeline page, after a few refreshes I saw that a single BA turn has
 > run. I think the engine is running in the background but the FE is not properly showing them.
 
-Three distinct things, which is why it reads as confusing rather than simply broken. All three
-were reproduced; the measurements below are from a real run against the real model.
+Two distinct things, which is why it reads as confusing rather than simply broken. Both were
+reproduced; the measurements below are from a real run against the real model. (A third —
+"the canvas paints nothing at all" — was reported and then withdrawn; see Cause C.)
 
 ### Cause A — the Start button is correctly hidden, for an invisible reason
 
@@ -54,35 +62,26 @@ running. That is why a refresh eventually "showed that a single BA turn has run"
 refresh at the moment the gate was reached, and the `paused_at_gate` fallback finally marked
 `ba`/`sa` as done.
 
-### Cause C — the canvas sometimes paints nothing at all (intermittent)
+### Cause C — WITHDRAWN: "the canvas paints nothing at all"
 
-Captured while reproducing the above: on arriving at the Pipeline screen right after **Start
-build**, the React Flow canvas painted *completely blank* — see
-`C:\devsct-test-projects\shots-pipeline-just-started.png`. The nodes were in the DOM, five
-of them, with correct geometry (`top: 525, h: 32`) and a sane viewport transform, but `innerText`
-came back empty for every one and nothing was painted. A direct load of the same URL rendered
-normally, which is exactly why "after a few refreshes I saw that a single BA turn has run" — a
-refresh is a direct load.
+**Withdrawn 2026-11-21.** I reported that the React Flow canvas rendered completely blank — from
+arrival, through a reload, and still blank four minutes later at the gate — based on screenshots
+and DOM measurements from my automation (`shots-pipeline-just-started.png`,
+`shots-gate-reached.png`, where five nodes sat in the DOM at correct geometry with empty
+`innerText` and nothing painted).
 
-**Severity, revised upward after watching a whole run.** This is not a momentary flicker. In the
-session that was driven end to end, the canvas was blank from the moment the Pipeline screen was
-reached, stayed blank across an explicit page reload, and was *still* blank four and a half
-minutes later when the run paused at the `after_sa` gate — see
-`shots-gate-reached.png`, where the Milestones panel is correctly populated with both of the
-BA's milestones beside an entirely empty graph. The nodes were never clickable either: the final
-step of the run-through, clicking the "Build milestone" node, could not complete because there
-was nothing on screen to click.
+**A screenshot from the user's own browser, at that same gate, shows the graph rendering
+perfectly**: all five nodes visible and labelled, Business Analyst and Software Architect with
+green completion ticks, the remaining three with idle markers, and the node detail panel correctly
+populated after clicking Software Architect.
 
-**It is, however, not reliably triggerable.** Fresh short-lived sessions navigating Chat →
-Pipeline rendered correctly on two deliberate attempts. So the trigger is something about the
-long-lived session — the most likely suspect is that `nodes` is rebuilt as a brand-new array on
-every render, and `refreshStatus` polls every 3 seconds, so React Flow is handed a wholly new node
-set 20 times a minute and may never settle into a measured, visible state. That is a cheap thing
-to test (memoise `nodes`/`edges` and see if the failure stops) and a cheap thing to fix.
+So this was an artifact of **headless Chromium under Playwright**, not of the app — the second
+time in this investigation that my harness produced a phantom bug (see the withdrawn ISSUE-13).
+In headless runs it was intermittent: a direct page load rendered, a client-side navigation
+sometimes did not. In a real browser it simply works.
 
-It is probably the same family as the already-fixed `fitView`-on-mount problem: React Flow
-measures once, and this screen keeps moving underneath it. Worth attacking by making the node set
-stable and the measurement deterministic on route entry, rather than with another targeted patch.
+Nothing here needs fixing. Kept as a withdrawn note so the blank-canvas screenshots in
+`asct-test-projects/shots/` aren't mistaken for evidence of a product defect.
 
 ### Fix
 
@@ -214,7 +213,12 @@ reaches it.
 **Severity:** Minor, trivially fixable.
 
 Clicking a node opens its detail panel but the node itself looks unchanged, so there is nothing
-tying the panel to the box you clicked. `PipelineNode` destructures only `data`
+tying the panel to the box you clicked.
+
+Confirmed from the user's own browser at the `after_sa` gate: the Software Architect node had been
+clicked — the right-hand panel is headed "Software Architect" and lists its `sa` call — yet that
+node is drawn identically to Business Analyst beside it. The only clue as to which node the panel
+belongs to is the panel's own title. `PipelineNode` destructures only `data`
 ([Pipeline.tsx:41](../../asct-fe-desktop/src/pages/Pipeline.tsx#L41)) and never reads React Flow's
 `selected` prop, which it is already being handed.
 
