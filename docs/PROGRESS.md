@@ -5,7 +5,7 @@ Claude Code sessions. For what each milestone requires, see
 `docs/specs/2026_11_13-appsmith_ct_implementation_specification.md`, section 10. For how a specific
 milestone was executed, see the matching dated plan in `docs/plans/`.
 
-Last updated: 2026-11-20
+Last updated: 2026-11-21
 
 ## Known issues
 
@@ -23,6 +23,25 @@ field with a default is a field the model may silently skip**, which was costing
 real work on every run. Two things remain open and are noted there: reasoning volume is now the
 dominant cost (3k-30k characters per call), and the component build path (Tech Lead, Developers,
 QA) still has not been driven against a real model.
+
+### Pipeline screen UX (`docs/issues/2026_11_20-pipeline-ux-issues.md`)
+
+Driving the Pipeline screen against the real model found a cluster of nine issues: against a model
+where a node takes minutes rather than milliseconds, the screen had nothing to say about what was
+happening, and there was no way to stop a run short of killing the engine.
+
+**Fixed 2026-11-21: ISSUE-4 (causes A and B), 5, 8, 9, 10, 11, 12.** A run's per-node progress is
+now answerable over REST (`GET /runs/{id}`) rather than existing only in a live event stream with
+no replay, so arriving late or refreshing no longer draws a dead screen; the header names the
+running node with a ticking elapsed counter; gates say what they are asking and show the artifact
+just produced; the node detail panel refreshes during a run; a model call has a finite timeout
+(`ModelProfile.request_timeout`, 600s by default); and `stop` is a real cooperative cancellation
+with a UI control, with every still-unimplemented control action answering 501 instead of
+`200 {"ok": false}`.
+
+**Still open: ISSUE-6 and ISSUE-7** — streaming each step's reasoning/output into the run's event
+feed, and expanding `build_milestone` into the subgraph it actually is. One piece of work: the
+engine has to publish events from inside the milestone flow, which it currently does not at all.
 
 ## Milestone status
 

@@ -112,6 +112,55 @@
       "title": "LLMCallRecorded",
       "type": "object"
     },
+    "LLMDelta": {
+      "description": "One incremental chunk of a model's reasoning or answer, as it arrives.\n\nThis is the run-path equivalent of what the chat WS has streamed since post-M6: a run used to\npublish nothing between `node_started` and a `node_finished` minutes later, so a legitimately\nslow call (211 seconds, measured) and a hung one looked identical. `LLMClient` publishes these\nwhen it is constructed with `stream_events=True` (`appsmith.api.run_manager` does; the CLI\ndoes not \u2014 there is no live UI to feed).\n\nNot backlogged by `EventBus`: see its docstring.",
+      "properties": {
+        "kind": {
+          "const": "llm_delta",
+          "default": "llm_delta",
+          "title": "Kind",
+          "type": "string"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "node": {
+          "title": "Node",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "delta_kind": {
+          "enum": [
+            "reasoning",
+            "content"
+          ],
+          "title": "Delta Kind",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "node",
+        "role",
+        "delta_kind",
+        "text"
+      ],
+      "title": "LLMDelta",
+      "type": "object"
+    },
     "MetricsUpdated": {
       "properties": {
         "kind": {
@@ -221,6 +270,9 @@
     },
     {
       "$ref": "#/$defs/LLMCallRecorded"
+    },
+    {
+      "$ref": "#/$defs/LLMDelta"
     },
     {
       "$ref": "#/$defs/ArtifactWritten"

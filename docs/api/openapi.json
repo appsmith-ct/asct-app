@@ -1382,6 +1382,17 @@
             ],
             "title": "Max Tokens"
           },
+          "request_timeout": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Timeout"
+          },
           "thinking": {
             "anyOf": [
               {
@@ -1732,6 +1743,52 @@
         ],
         "title": "RunMetricsResponse"
       },
+      "RunNodeState": {
+        "properties": {
+          "node": {
+            "type": "string",
+            "title": "Node"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "success",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "node",
+          "status"
+        ],
+        "title": "RunNodeState",
+        "description": "One graph node's progress, as the run has actually observed it.\n\nCarried on `GET /runs/{id}` so \"where is this run now?\" is answerable over REST and not only\nby having watched the live event stream from the start. Before this, the Pipeline screen\nreconstructed node state purely from `node_started`/`node_finished` frames as they arrived:\nopening the screen after a node had started, or refreshing the page, left every node drawn as\nidle for the whole minutes-long call."
+      },
       "RunStatusResponse": {
         "properties": {
           "run_id": {
@@ -1744,7 +1801,8 @@
               "running",
               "paused_at_gate",
               "done",
-              "failed"
+              "failed",
+              "stopped"
             ],
             "title": "Status"
           },
@@ -1781,6 +1839,18 @@
               }
             ],
             "title": "Result"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/RunNodeState"
+            },
+            "type": "array",
+            "title": "Nodes"
+          },
+          "stop_requested": {
+            "type": "boolean",
+            "title": "Stop Requested",
+            "default": false
           }
         },
         "type": "object",

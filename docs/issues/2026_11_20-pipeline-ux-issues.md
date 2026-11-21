@@ -21,7 +21,7 @@ automation produced two convincing phantoms here.
 
 ## ISSUE-4 — Run progress is invisible, and a refresh loses it entirely
 
-**Status:** Open
+**Status:** **Fixed** 2026-11-21 (causes A and B; C was withdrawn)
 **Area:** `asct-fe-desktop/src/pages/Pipeline.tsx`, `src/api/useRunEvents.ts`; engine events WS
 **Severity:** Blocker for actually watching a run — this is the screen's whole job.
 
@@ -94,11 +94,26 @@ Nothing here needs fixing. Kept as a withdrawn note so the blank-canvas screensh
 3. Say plainly that a run is in progress, where the Start button used to be — not in subtitle
    grey. Offer the Start button whenever there is genuinely no active run.
 
+### What was done
+
+All three. `RunHandle` accumulates per-node state by subscribing to the run's own event bus, so
+anything that publishes a `NodeStarted` is visible to `GET /runs/{id}` for free, with no second
+reporting path to keep in sync; `EventBus` also keeps a bounded replay backlog that the events WS
+replays on connect, so a late subscriber's event *log* is honest too. The screen reads node state
+from REST and layers the live feed over it for freshness, and the header says
+"Running Business Analyst · 3m 20s" with a ticking counter — the part that tells slow apart from
+stuck — plus a Stop button (ISSUE-12).
+
+Not covered: a run whose engine restarted mid-flight. `RunManager` is in-memory by design, so
+`GET /runs/{id}` 404s and the screen offers Start, which resumes from the checkpoint. Deriving
+node state from stored artifacts (fix option 1's second half) would make even that case
+answerable, and is still worth doing.
+
 ---
 
 ## ISSUE-5 — Clicking "Build milestone" shows the intake conversation's LLM calls
 
-**Status:** Open
+**Status:** **Fixed** 2026-11-21
 **Area:** `asct-fe-desktop/src/pages/Pipeline.tsx`
 **Severity:** Minor, but actively misleading — it attributes work to the wrong node.
 
@@ -132,6 +147,13 @@ component id, so intake calls are right there in the list.
 Match by what a node actually owns rather than by exclusion — the component-build nodes have known
 names (`tl_plan`, `dev_implement`, `tl_review`, `component_e2e`, `handoff`, `qa_test_plan`, ...).
 This disappears anyway if ISSUE-7 is done, because each sub-step would own its own calls.
+
+### What was done
+
+`BUILD_MILESTONE_NODES` in `Pipeline.tsx`, matched against the part of the call's node name before
+the first `:` (the engine qualifies a call with its task, role, attempt and review round, and the
+agent loop appends `:step<n>` on top of that). Confirmed against a real `--fake-llm` run: clicking
+"Build milestone" mid-build lists `tl_plan (role=tech_lead)` and nothing from intake.
 
 ---
 
@@ -208,7 +230,7 @@ reaches it.
 
 ## ISSUE-8 — No indicator for the currently *selected* node
 
-**Status:** Open
+**Status:** **Fixed** 2026-11-21
 **Area:** `asct-fe-desktop/src/pages/Pipeline.tsx`
 **Severity:** Minor, trivially fixable.
 
@@ -227,11 +249,16 @@ belongs to is the panel's own title. `PipelineNode` destructures only `data`
 Read `selected` in `PipelineNode` and give it a ring/border treatment. (Distinct from the *running*
 indicator — a node can be both.)
 
+### What was done
+
+Exactly that: a primary-coloured border and ring, with `selected` set on the node list the
+Pipeline screen builds, so it survives that list being rebuilt on every render.
+
 ---
 
 ## ISSUE-9 — The approve gate doesn't say what you're approving
 
-**Status:** Open
+**Status:** **Fixed** 2026-11-21 (gate artifact *editing* remains unimplemented, as noted below)
 **Area:** `asct-fe-desktop/src/pages/Pipeline.tsx`
 **Severity:** Major — it asks for a decision while withholding what the decision is about.
 
@@ -260,11 +287,19 @@ for `after_ba`, the requirements and milestones. The `after_milestone` gate alre
 properly via `MilestoneGate`/`MilestoneRail` — the earlier gates should match that standard. Editing
 the artifact at the gate remains unimplemented and is a separate, larger piece of work.
 
+### What was done
+
+A new `GateBanner` component: the gate named in words ("Approve the architecture"), what approving
+it sets off, the architecture's style/deployment/components/contracts/decision log, the BA's plan
+beside it, and "Approve and continue". The raw gate id stays as a quiet hint — it is what the
+engine logs and what `POST /runs/{id}/control` talks about — it just isn't the message any more.
+Editing at the gate is still unimplemented, as noted above.
+
 ---
 
 ## ISSUE-10 — The node detail panel never refreshes during a run
 
-**Status:** Open
+**Status:** **Fixed** 2026-11-21
 **Area:** `asct-fe-desktop/src/pages/Pipeline.tsx`
 **Severity:** Major — found while tracing the above, not reported; it compounds ISSUE-4.
 
@@ -285,11 +320,20 @@ The status *object* is rebuilt every 3s by the polling effect above it, so depen
 presumably what was meant. That's a one-word fix, but the call list is probably the wrong thing
 to poll for live progress anyway (see ISSUE-6).
 
+### What was done
+
+Its own `refreshCalls`, on the same 3s tick, and only while a node is selected (plus immediately
+on clicking one, since a panel that takes three seconds to show what it already has reads as
+empty). Deliberately *not* folded into the status poll: this response carries every call's full
+prompt and response, so anything awaiting the status refresh — approving a gate, submitting a
+change request — would then be waiting on the heaviest fetch the screen makes. Doing exactly that
+briefly left the change-request box holding submitted text for seconds, caught by the smoke test.
+
 ---
 
 ## ISSUE-11 — A model call has no timeout, so a stalled request hangs the run forever
 
-**Status:** Open
+**Status:** **Fixed** 2026-11-21
 **Area:** `asct-be-engine` — `appsmith/api/deps.py`, `appsmith/cli.py` (chat-model factories)
 **Severity:** Major — turns "the model is slow" into "the run is dead", with no way to tell.
 
@@ -328,11 +372,22 @@ but finite, so a stall surfaces as a failed node that can be retried rather than
 Worth pairing with a heartbeat on the events WS so "still waiting, 240s elapsed" is distinguishable
 from "nothing is happening".
 
+### What was done
+
+`ModelProfile.request_timeout`, stored (with its own migration), editable via
+`appsmith config set-profile --request-timeout`, and passed through both chat-model factories —
+the API's and the CLI's, which have drifted before, so there is a test on each. The shipped default
+is 600s. Databases seeded before this keep `NULL` (= no timeout, which is what they already meant);
+`appsmith config reseed` adopts the new default.
+
+The "still waiting, Ns elapsed" half is now the Pipeline screen's ticking elapsed counter
+(ISSUE-4), which answers the same question without a heartbeat frame.
+
 ---
 
 ## ISSUE-12 — A run cannot be stopped, paused, or cancelled
 
-**Status:** Open
+**Status:** **Fixed** 2026-11-21 (`stop` is real; `pause`/`resume`/`retry_node`/`restart_from_node` are unimplemented and now say so with a 501)
 **Area:** `asct-be-engine` — `appsmith/api/run_manager.py`, `appsmith/api/routers/runs.py`;
 `asct-fe-desktop` Pipeline screen
 **Severity:** Major — the only way out of a running build is to kill the engine process.
@@ -372,6 +427,22 @@ data loss and isn't.
 3. Give the Pipeline screen a Stop control, and tell the user plainly that stopping is safe
    because the run resumes from its checkpoint.
 
+### What was done
+
+All three. `CancellationToken` (`appsmith/core/cancellation.py`) is checked at the three boundaries
+that bound how long a stop takes to land: between project-graph nodes, before each `LLMClient`
+attempt, and between streamed chunks of a response — the last being what makes it feel immediate,
+since a thinking pass is minutes of chunks. A run parked at a gate has no thread to interrupt and
+stops outright. `RunCancelled` is deliberately not a subclass of the engine's failure types, so the
+`except` clauses that turn bad model output into a graph failure cannot record a stop as a crash.
+
+Everything still unimplemented answers 501 instead of `200 {"ok": false}`. The UI has a Stop
+button, a "Stopping…" state while the stop lands, and "Resume from checkpoint" after it has.
+
+Not covered: a stop during a long *non-model* step inside the milestone flow (a pytest run, a
+container build) waits for that step to finish, because the check points are node boundaries and
+model calls. ISSUE-7's work threads the same token further in.
+
 ---
 
 ## ISSUE-13 — WITHDRAWN: "an answer sent during a reconnect strands the conversation"
@@ -402,6 +473,13 @@ built for.
 should not be presented as a bug.
 
 ---
+
+## Progress
+
+As of 2026-11-21, seven of the nine live issues are fixed: ISSUE-4 (causes A and B), 5, 8, 9, 10,
+11 and 12. **ISSUE-6 and ISSUE-7 remain open** — they are the same underlying work (publish finer
+events from inside the milestone flow, render them), and they are what the suggested order below
+leaves until last.
 
 ## Suggested fix order
 
