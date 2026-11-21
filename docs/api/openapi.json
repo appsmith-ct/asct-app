@@ -1758,6 +1758,28 @@
             ],
             "title": "Status"
           },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          },
+          "component_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Id"
+          },
           "started_at": {
             "anyOf": [
               {
@@ -1787,7 +1809,7 @@
           "status"
         ],
         "title": "RunNodeState",
-        "description": "One graph node's progress, as the run has actually observed it.\n\nCarried on `GET /runs/{id}` so \"where is this run now?\" is answerable over REST and not only\nby having watched the live event stream from the start. Before this, the Pipeline screen\nreconstructed node state purely from `node_started`/`node_finished` frames as they arrived:\nopening the screen after a node had started, or refreshing the page, left every node drawn as\nidle for the whole minutes-long call."
+        "description": "One graph node's progress, as the run has actually observed it.\n\nCarried on `GET /runs/{id}` so \"where is this run now?\" is answerable over REST and not only\nby having watched the live event stream from the start. Before this, the Pipeline screen\nreconstructed node state purely from `node_started`/`node_finished` frames as they arrived:\nopening the screen after a node had started, or refreshing the page, left every node drawn as\nidle for the whole minutes-long call.\n\n`parent` is set for the steps *inside* the milestone flow (`tl_plan`, `task:T2`,\n`integrate_stage`, ...), whose parent is the project graph's `build_milestone` node; it is\n`None` for the project graph's own nodes. `component_id` names which component a step belongs\nto where it belongs to one \u2014 the same step names repeat per component, so (node,\ncomponent_id) is the identity, not the node name alone."
       },
       "RunStatusResponse": {
         "properties": {

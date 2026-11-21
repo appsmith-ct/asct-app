@@ -39,9 +39,28 @@ just produced; the node detail panel refreshes during a run; a model call has a 
 with a UI control, with every still-unimplemented control action answering 501 instead of
 `200 {"ok": false}`.
 
-**Still open: ISSUE-6 and ISSUE-7** — streaming each step's reasoning/output into the run's event
-feed, and expanding `build_milestone` into the subgraph it actually is. One piece of work: the
-engine has to publish events from inside the milestone flow, which it currently does not at all.
+**ISSUE-6 and ISSUE-7 followed, same day and as one piece of work.** The engine publishes nothing
+from inside `build_milestone` was the common cause: it now reports every step of the milestone
+flow (per component, and per task within a component) through a `StepObserver` threaded down from
+the API layer, and streams every call's tokens as `llm_delta` events the way the chat WS already
+did. The screen expands `build_milestone` into those steps and renders the live reasoning/answer
+through the Chat screen's own `LiveTurn`.
+
+**All nine live issues in that document are now fixed.** What each fix deliberately leaves undone
+is recorded next to it — run state not surviving an engine restart, editing an artifact at a gate,
+the remaining control actions, and per-component attribution of LLM calls.
+
+Verifying ISSUE-6 needed the real model (a scripted fake answers in one chunk), so
+`scripts/manual_run_events_check.py` now exists for it, and running it **drove the component
+build path against a real model for the first time** — the gap this section has been noting since
+2026-11-20. Two things came out of that beyond the issues themselves:
+
+- The escalation ladder works and was fully exercised on a single task: `dev_intern` burned its
+  three attempts, `dev_mid` its three, `dev_senior` its three, and the task reached `tech_lead`.
+  Whether the task was genuinely that hard or the rungs share a failure the prompts don't address
+  is the open question, and the per-step events now make it watchable rather than inferable.
+- Step durations against `Qwen3.6-35B-A3B`: BA 85s, SA 97s, `tl_plan` 94s, `scaffold` 7s. The
+  dev attempts are agent loops of 2-14 steps each, which is where the time actually goes.
 
 ## Milestone status
 

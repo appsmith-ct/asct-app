@@ -159,7 +159,7 @@ agent loop appends `:step<n>` on top of that). Confirmed against a real `--fake-
 
 ## ISSUE-6 — No indication of what is running, or whether anything is happening at all
 
-**Status:** Open
+**Status:** **Fixed** 2026-11-21
 **Area:** engine (`appsmith/api/run_manager.py`, events WS), `asct-fe-desktop`
 **Severity:** Major — the difference between "working" and "hung" is currently unknowable.
 
@@ -189,11 +189,28 @@ events WS. The Chat screen's `LiveTurn` component already renders exactly this (
 answer, ticking tokens/elapsed/tok-per-sec) and should be reusable as-is. The ticking elapsed
 counter matters as much as the text: it is what distinguishes slow from stuck.
 
+### What was done
+
+Exactly that. `LLMClient` gained `stream_events`: an API run streams every call and publishes each
+chunk as an `llm_delta` event carrying the node and role it belongs to. `generate_structured` has
+taken an `on_delta` since post-M6 — the run path simply never passed one — so this is the Chat
+screen's proven mechanism, not a new one. Deltas are kept out of the event backlog (they describe
+a moment, not a state) and the client caps what it keeps, since reasoning runs to 3k-30k
+characters per call.
+
+The Pipeline screen renders them through `LiveTurn`, unchanged, and the header names the running
+step with a ticking elapsed counter (ISSUE-4).
+
+Verified against the real model, which is the only way to see this work: a scripted fake answers
+in one chunk and finishes in milliseconds, so it can show that delta frames exist but not that
+text keeps arriving through a minutes-long call.
+`scripts/manual_run_events_check.py` is that check, kept so it can be re-run.
+
 ---
 
 ## ISSUE-7 — "Build milestone" is a whole graph shown as one box
 
-**Status:** Open
+**Status:** **Fixed** 2026-11-21
 **Area:** engine (no events emitted inside the milestone flow), `asct-fe-desktop`
 **Severity:** Major — this node is where almost all the time goes.
 
@@ -225,6 +242,38 @@ already threaded as far as `LLMClient`; the node wrappers need the same treatmen
 `build_milestone` as an expandable group in React Flow. `GET /runs/{id}/milestones` already
 reports per-milestone component scope, so the static shape is available even before the run
 reaches it.
+
+### What was done
+
+The project graph's five nodes can be wrapped from outside because they are LangGraph nodes
+assembled in one place. The milestone flow cannot: it is plain Python driving a per-component
+subgraph, with loops and bounded retries an outer wrapper cannot see into. So its steps report
+themselves through a `StepObserver` threaded down from the API layer
+(`appsmith/core/step_observer.py`), defaulting to a no-op everywhere so the CLI and the existing
+tests are untouched. Events carry `parent="build_milestone"` and `component_id`, because the same
+step names repeat per component.
+
+Reported per *task* as well as per `process_tasks`: that loop is the long part of a build (a dev
+attempt, its gates, a review, maybe an escalation up the rung ladder), so one spinner over the lot
+would sit still for most of the run.
+
+The screen draws `build_milestone` with an expand toggle, opening into one row per component
+(Tech Lead plan → scaffold → tasks → component E2E → handoff) and a row for the milestone-level
+steps (integrate → stage → QA → triage). The static shape comes from `GET /runs/{id}/milestones`,
+so the subgraph is visible before the run reaches it.
+
+Two rendering bugs surfaced while verifying it, both now fixed: React Flow leaves a node
+`visibility: hidden` until it has measured it and re-measures rebuilt nodes, so recreating the
+`nodes` array on every render (a 3s poll makes that often) left the graph invisible in beats —
+which is also the most likely mechanism behind the withdrawn blank-canvas observation in ISSUE-4's
+Cause C, since it would show up far more readily under headless automation than in a browser being
+watched by a human. And the view now re-fits when the node count changes, not only when the pane
+resizes, because expanding the subgraph grows the graph without resizing anything.
+
+Not covered: `GET /runs/{id}/llm-calls` unions the per-component call traces without saying which
+component each came from, so with two components the Tech Lead plans for both appear under either
+one's `tl_plan` in the detail panel. Fixing that is a change to the call-tracing shape, not to the
+screen.
 
 ---
 
@@ -377,8 +426,11 @@ from "nothing is happening".
 `ModelProfile.request_timeout`, stored (with its own migration), editable via
 `appsmith config set-profile --request-timeout`, and passed through both chat-model factories —
 the API's and the CLI's, which have drifted before, so there is a test on each. The shipped default
-is 600s. Databases seeded before this keep `NULL` (= no timeout, which is what they already meant);
-`appsmith config reseed` adopts the new default.
+is 600s, and the migration **backfills** it onto profiles that already exist rather than leaving
+them NULL: no profile ever chose "no timeout", they simply predate the setting, so leaving them
+alone would ship the fix to new installs and skip every machine that has already hit the problem.
+(Caught by running the real-model check against a copy of this machine's own settings database,
+which reported `timeout : None per call` after the migration.)
 
 The "still waiting, Ns elapsed" half is now the Pipeline screen's ticking elapsed counter
 (ISSUE-4), which answers the same question without a heartbeat frame.
@@ -476,10 +528,58 @@ should not be presented as a bug.
 
 ## Progress
 
-As of 2026-11-21, seven of the nine live issues are fixed: ISSUE-4 (causes A and B), 5, 8, 9, 10,
-11 and 12. **ISSUE-6 and ISSUE-7 remain open** — they are the same underlying work (publish finer
-events from inside the milestone flow, render them), and they are what the suggested order below
-leaves until last.
+**All nine live issues are fixed as of 2026-11-21** (ISSUE-4's Cause C and ISSUE-13 were withdrawn
+rather than fixed). The order below was followed as suggested, ending with ISSUE-6 and ISSUE-7
+together, which were one piece of work.
+
+What each fix deliberately leaves undone is recorded in its own "What was done" section rather
+than here, so a gap is read next to the thing it belongs to: run state not surviving an engine
+restart (ISSUE-4), editing an artifact at a gate (ISSUE-9), `pause`/`resume`/`retry_node`/
+`restart_from_node` (ISSUE-12), and per-component attribution of LLM calls (ISSUE-7).
+
+### Verified against the real model
+
+`scripts/manual_run_events_check.py` (engine repo) drives the real API the way the UI does and
+prints what the run publishes. Against `Qwen3.6-35B-A3B` on the LAN endpoint:
+
+```
+[    0.1s] node_started       ba
+[    6.6s] streaming ba (ba): 4 reasoning chars, 0 answer chars
+[   31.6s] streaming ba (ba): 4150 reasoning chars, 0 answer chars
+[   66.7s] streaming ba (ba): 9745 reasoning chars, 0 answer chars
+[   84.7s] node_finished      ba success
+[  181.8s] node_finished      sa success
+[  181.9s] node_started       tl_plan in build_milestone [backend]
+[  275.6s] node_finished      tl_plan success in build_milestone [backend]
+[  282.5s] node_started       task:T1 in build_milestone [backend]
+```
+
+That is the whole cluster's premise and its fix in one trace: steps that take 85, 97 and 94
+seconds each — which is why a screen with nothing to say about them read as dead — and text
+arriving throughout at roughly 800 characters per five seconds, which is what the screen now
+shows. The milestone flow's own steps carry their parent and component, which is what
+`build_milestone` expands into.
+
+`GET /runs/{id}` answered the same question mid-build, which is ISSUE-4's actual fix — this is a
+snapshot taken while the run was still going, and it is exactly what the screen draws:
+
+```
+ba                       success
+sa                       success
+build_milestone          running
+tl_plan                  success in build_milestone [backend]
+scaffold                 success in build_milestone [backend]
+process_tasks            running in build_milestone [backend]
+task:T1                  running in build_milestone [backend]
+```
+
+Reasoning volume per call, for the record: BA 21,340 characters, SA 23,048, `tl_plan` 23,260 —
+the high end of the 3k-30k range the post-M6 notes flagged as the dominant cost. The `developer`
+role has thinking off, so its agent-loop steps stream answer text only.
+
+The FakeLLM suite cannot establish any of this by construction: a scripted fake answers in one
+chunk and finishes in milliseconds. It establishes the shape (the frames exist, the steps are
+reported, the UI renders them); only a real model establishes that they keep arriving.
 
 ## Suggested fix order
 
